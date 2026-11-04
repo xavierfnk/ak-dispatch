@@ -44,3 +44,7 @@ Each user supplies their own Google Maps Platform API key in **Configuration**. 
 ## Releases
 
 Pushing a version tag such as `v0.1.0` runs the GitHub Actions release workflow for Windows x64 and macOS arm64/x64. macOS assets are zipped `.app` bundles; Windows is a `.exe`. macOS bundles are not Developer-ID signed or notarized, so operating-system warnings may appear when opening them.
+
+For in-app updates, install the Windows executable at `%LOCALAPPDATA%\Programs\Patient Dispatch Planner\patient-dispatch-planner.exe` (rename the downloaded release asset to `patient-dispatch-planner.exe`) or place the unzipped macOS app at `~/Applications/patient-dispatch-planner.app`. In **Configuration → Mises à jour**, check for updates and choose **Installer et redémarrer**. Updates are downloaded from this repository's GitHub Releases; the app checks GitHub's SHA-256 asset digest and verifies a detached Ed25519 signature before replacing itself. The app folder must be writable by the current user.
+
+Before publishing releases, configure the updater signing keys in GitHub Actions: generate an Ed25519 key with `openssl genpkey -algorithm Ed25519 -out update-private.pem`; set the `UPDATE_SIGNING_PRIVATE_KEY` Actions secret to that PEM file, and set the `UPDATE_SIGNING_PUBLIC_KEY` repository variable to `$(openssl pkey -in update-private.pem -pubout -outform DER | tail -c 32 | base64 | tr -d '\n')`. Keep the private key out of the repository. Each release asset is signed, and the app verifies that signature before replacing itself.

@@ -13,7 +13,9 @@
 
 L’interface React/TypeScript communique directement avec le service Go par Wails. Les équipes, cohortes et données de formulaire sont conservées dans IndexedDB du WebView de l’application. Les clés API Google sont enregistrées dans le trousseau du système d’exploitation. Les résultats Google sont conservés en mémoire et ne sont pas enregistrés dans la base locale.
 
-L’application publiée n’a ni serveur applicatif distant, ni base de données cloud, ni analytique ni télémétrie. L’appel à Google est une exception au traitement local : Google reçoit les lieux transmis ainsi que les métadonnées de requête, selon les conditions applicables au projet associé à la clé. Le stockage local n’est pas chiffré par l’application.
+L’application publiée n’a ni serveur applicatif distant, ni base de données cloud, ni analytique ni télémétrie. Une recherche de mise à jour GitHub est effectuée uniquement sur action explicite dans **Configuration → Mises à jour** ; elle n’envoie aucune donnée métier. L’appel à Google est une autre exception au traitement local : Google reçoit les lieux transmis ainsi que les métadonnées de requête, selon les conditions applicables au projet associé à la clé. Le stockage local n’est pas chiffré par l’application.
+
+Pour permettre la mise à jour intégrée, placez l’exécutable Windows dans `%LOCALAPPDATA%\Programs\Patient Dispatch Planner\patient-dispatch-planner.exe` ou l’application macOS dans `~/Applications/patient-dispatch-planner.app`. Les mises à jour remplacent ces fichiers dans leur emplacement actuel, après vérification de l’empreinte SHA-256 et de la signature Ed25519, et nécessitent un dossier accessible en écriture par l’utilisateur.
 
 **Utilisez des données fictives jusqu’à validation par les responsables de la protection des données et les équipes juridiques de votre organisation, ainsi qu’à vérification des conditions Google Maps Platform.** Voir la [documentation sur le traitement des données](traitement-des-donnees.md).
 

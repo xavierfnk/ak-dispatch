@@ -45,6 +45,25 @@ jobs:
         shell: bash
       - name: Build app
         run: |
+          export APP_VERSION="${GITHUB_REF_NAME}"
+          export APP_VERSION_NUMBER="${APP_VERSION#v}"
+          [[ "$APP_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "Use a stable semantic version tag such as v1.2.3" >&2; exit 1; }
+          : "${UPDATE_SIGNING_PUBLIC_KEY:?Set the UPDATE_SIGNING_PUBLIC_KEY repository variable}"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const version = process.env.APP_VERSION_NUMBER;
+          const config = 'server/cmd/desktop/build/config.yml';
+          fs.writeFileSync(config, fs.readFileSync(config, 'utf8').replace(/(^  version:\s*).+$/m, (_, prefix) => prefix + version));
+          const plist = 'server/cmd/desktop/build/darwin/Info.plist';
+          fs.writeFileSync(plist, fs.readFileSync(plist, 'utf8')
+            .replace(/(<key>CFBundleShortVersionString<\/key>\s*<string>)[^<]*/, (_, prefix) => prefix + version)
+            .replace(/(<key>CFBundleVersion<\/key>\s*<string>)[^<]*/, (_, prefix) => prefix + version));
+          const windowsInfo = 'server/cmd/desktop/build/windows/info.json';
+          const info = JSON.parse(fs.readFileSync(windowsInfo, 'utf8'));
+          info.fixed.file_version = version;
+          info.info['0409'].ProductVersion = version;
+          fs.writeFileSync(windowsInfo, JSON.stringify(info, null, '\t') + '\n');
+          NODE
           cd server/cmd/desktop
           wails3 package GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }}
           mkdir -p "$RUNNER_TEMP/release-assets"
@@ -56,6 +75,8 @@ jobs:
               "$RUNNER_TEMP/release-assets/patient-dispatch-planner-${{ matrix.asset }}.exe"
           fi
         shell: bash
+        env:
+          UPDATE_SIGNING_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBLIC_KEY }}
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.asset }}
@@ -75,4 +96,20 @@ jobs:
       - name: Create release and upload assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release-assets/* --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+          GH_REPO: ${{ github.repository }}
+          UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
+          UPDATE_SIGNING_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBLIC_KEY }}
+        run: |
+          test -n "$UPDATE_SIGNING_PRIVATE_KEY" || { echo "Set the UPDATE_SIGNING_PRIVATE_KEY secret" >&2; exit 1; }
+          key="$RUNNER_TEMP/update-signing-key.pem"
+          printf '%s' "$UPDATE_SIGNING_PRIVATE_KEY" > "$key"
+          public_key=$(openssl pkey -in "$key" -pubout -outform DER | tail -c 32 | base64 | tr -d '\n')
+          test "$public_key" = "$UPDATE_SIGNING_PUBLIC_KEY" || { echo "Signing key does not match UPDATE_SIGNING_PUBLIC_KEY" >&2; exit 1; }
+          for asset in release-assets/*; do
+            digest="$asset.sha256"
+            sha256sum "$asset" | cut -d' ' -f1 | xxd -r -p > "$digest"
+            openssl pkeyutl -sign -rawin -inkey "$key" -in "$digest" -out "$asset.sig"
+            rm "$digest"
+          done
+          rm "$key"
+          gh release create "$GITHUB_REF_NAME" release-assets/* --title "$GITHUB_REF_NAME" --generate-notes --verify-tag

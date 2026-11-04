@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/zalando/go-keyring"
 	"patient-dispatch-planner/server/internal/dispatch"
 	"patient-dispatch-planner/server/internal/googlemaps"
@@ -39,6 +40,7 @@ func (systemCredentialStore) Delete() error {
 
 type PlannerService struct {
 	credentials credentialStore
+	app         *application.App
 }
 
 func NewPlannerService() *PlannerService {
