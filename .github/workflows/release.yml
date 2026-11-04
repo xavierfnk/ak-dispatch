@@ -1,0 +1,78 @@
+name: Release desktop app
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            goos: windows
+            goarch: amd64
+            asset: windows-x64
+          - runner: macos-latest
+            goos: darwin
+            goarch: arm64
+            asset: macos-arm64
+          - runner: macos-latest
+            goos: darwin
+            goarch: amd64
+            asset: macos-x64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install Wails CLI
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+        shell: bash
+      - name: Build app
+        run: |
+          cd server/cmd/desktop
+          wails3 package GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }}
+          mkdir -p "$RUNNER_TEMP/release-assets"
+          if [ "${{ matrix.goos }}" = "darwin" ]; then
+            ditto -c -k --sequesterRsrc --keepParent bin/patient-dispatch-planner.app \
+              "$RUNNER_TEMP/release-assets/patient-dispatch-planner-${{ matrix.asset }}.zip"
+          else
+            cp bin/patient-dispatch-planner.exe \
+              "$RUNNER_TEMP/release-assets/patient-dispatch-planner-${{ matrix.asset }}.exe"
+          fi
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.asset }}
+          path: ${{ runner.temp }}/release-assets/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Create release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release-assets/* --title "$GITHUB_REF_NAME" --generate-notes --verify-tag

@@ -1,0 +1,27 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Go build and coverage output
+*.test
+*.out
+*.exe
+*.dll
+*.so
+*.dylib
+
+# JavaScript/TypeScript build output
+**/node_modules/
+**/dist/
+**/*.tsbuildinfo
+
+# Wails-generated files and task cache
+**/.task/
+server/api/
+server/cmd/desktop/bin/
+server/cmd/desktop/frontend/bindings/

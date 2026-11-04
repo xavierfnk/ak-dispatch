@@ -1,0 +1,36 @@
+version: '3'
+
+tasks:
+  go:mod:tidy:
+    internal: true
+    cmds:
+      - go mod tidy
+
+  install:frontend:deps:
+    dir: '{{.FRONTEND_DIR}}'
+    sources:
+      - package.json
+      - package-lock.json
+    generates:
+      - node_modules/*
+    cmds:
+      - npm ci
+
+  generate:bindings:
+    cmds:
+      - wails3 generate bindings -clean -ts
+
+  build:frontend:
+    dir: '{{.FRONTEND_DIR}}'
+    deps:
+      - task: install:frontend:deps
+      - task: generate:bindings
+    cmds:
+      - npm run build:desktop
+
+  dev:frontend:
+    dir: '{{.FRONTEND_DIR}}'
+    deps:
+      - task: install:frontend:deps
+    cmds:
+      - npm run dev -- --port {{.VITE_PORT}} --strictPort

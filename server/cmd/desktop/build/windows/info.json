@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.1.0"
+	},
+	"info": {
+		"0409": {
+			"ProductVersion": "0.1.0",
+			"CompanyName": "Patient Dispatch Planner",
+			"FileDescription": "Local patient cohort planning",
+			"LegalCopyright": "Copyright Patient Dispatch Planner contributors",
+			"ProductName": "Patient Dispatch Planner",
+			"Comments": "Standalone local-first desktop application"
+		}
+	}
+}

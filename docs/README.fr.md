@@ -1,0 +1,31 @@
+# Planificateur de répartition des patientes
+
+[English](../README.md) | **Français**
+
+**Patient Dispatch Planner** est une application de bureau locale destinée à aider les coordinatrices de maternité à préparer des propositions de répartition des patientes entre des équipes de sages-femmes. Les cohortes correspondent à la première ou à la seconde moitié d’un mois prévu d’accouchement. Toute proposition reste à vérifier par une personne : l’application ne décide pas de l’affectation finale.
+
+## Fonctionnement
+
+- Configurez les équipes, leurs membres et lieux, ainsi que les capacités minimale et maximale de chaque équipe.
+- Créez une cohorte pour une période et saisissez les lieux et la parité des patientes.
+- Lorsqu’une coordinatrice lance explicitement un calcul, l’application transmet les lieux des patientes et des membres d’équipe à l’API Google Routes afin de comparer les trajets à vélo et en transports en commun. Les noms, la parité, les capacités et les affectations ne sont pas transmis à Google.
+- Le service Go local combine les temps de trajet, l’équilibre des capacités et la parité de la cohorte pour produire une proposition explicable. La coordinatrice peut la vérifier et effectuer des changements qui respectent les capacités.
+
+L’interface React/TypeScript communique directement avec le service Go par Wails. Les équipes, cohortes et données de formulaire sont conservées dans IndexedDB du WebView de l’application. Les clés API Google sont enregistrées dans le trousseau du système d’exploitation. Les résultats Google sont conservés en mémoire et ne sont pas enregistrés dans la base locale.
+
+L’application publiée n’a ni serveur applicatif distant, ni base de données cloud, ni analytique ni télémétrie. L’appel à Google est une exception au traitement local : Google reçoit les lieux transmis ainsi que les métadonnées de requête, selon les conditions applicables au projet associé à la clé. Le stockage local n’est pas chiffré par l’application.
+
+**Utilisez des données fictives jusqu’à validation par les responsables de la protection des données et les équipes juridiques de votre organisation, ainsi qu’à vérification des conditions Google Maps Platform.** Voir la [documentation sur le traitement des données](traitement-des-donnees.md).
+
+## Développement
+
+Prérequis : la version de Go indiquée dans `server/go.mod`, Node.js 22, la CLI Wails v3 et ses prérequis de plateforme (outils de ligne de commande Xcode sur macOS ; WebView2 sur Windows). Task est facultatif.
+
+```sh
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
+task dev       # développement avec rechargement de l’interface
+task build     # paquet de bureau pour la plateforme actuelle
+task check     # tests Go, go vet et compilation du paquet
+```
+
+Pour lancer séparément les contrôles Go : `cd server && go test ./... && go vet ./...`. Pour compiler l’interface seule, générez d’abord les bindings Wails depuis `server/cmd/desktop` avec `wails3 generate bindings -clean -ts`, puis lancez `cd web && npm ci && npm run build`.
