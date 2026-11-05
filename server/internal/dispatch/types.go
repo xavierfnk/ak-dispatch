@@ -21,6 +21,7 @@ type Patient struct {
 	ID              string   `json:"id"`
 	Location        Location `json:"location"`
 	Parity          string   `json:"parity"`
+	EligiblePEC100  bool     `json:"eligiblePec100"`
 	EligibleTeamIDs []string `json:"eligibleTeamIds,omitempty"`
 }
 

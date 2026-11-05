@@ -6,6 +6,7 @@ includes:
   darwin: ./build/darwin/Taskfile.yml
 
 vars:
+  GOOS: '{{.GOOS | default OS}}'
   APP_NAME: patient-dispatch-planner
   VERSION: '{{.APP_VERSION | default "v0.1.0"}}'
   UPDATE_PUBLIC_KEY: '{{.UPDATE_SIGNING_PUBLIC_KEY | default ""}}'

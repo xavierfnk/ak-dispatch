@@ -110,7 +110,7 @@ func CalculateWithProvider(ctx context.Context, req Request, provider RouteProvi
 	}
 	resp.Solver.Status = search.status
 	if search.status == "infeasible" {
-		resp.Issues = append(resp.Issues, "No complete assignment satisfies team capacities and eligibility restrictions.")
+		resp.Issues = append(resp.Issues, "No complete assignment satisfies team capacities, eligibility restrictions, and PEC 100% balance.")
 		return resp, nil
 	}
 	if search.status == "time_limit" {
@@ -151,7 +151,7 @@ func validate(req Request, supportsTextLocations bool) []string {
 	if strings.TrimSpace(req.RequestID) == "" {
 		issues = append(issues, "A request token is required.")
 	}
-	if strings.TrimSpace(req.Cohort.ID) == "" || !monthPattern.MatchString(req.Cohort.ExpectedDeliveryMonth) || (req.Cohort.ExpectedDeliveryHalf != 1 && req.Cohort.ExpectedDeliveryHalf != 2) || req.Cohort.Revision < 0 {
+	if strings.TrimSpace(req.Cohort.ID) == "" || !monthPattern.MatchString(req.Cohort.ExpectedDeliveryMonth) || req.Cohort.ExpectedDeliveryHalf < 1 || req.Cohort.ExpectedDeliveryHalf > 4 || req.Cohort.Revision < 0 {
 		issues = append(issues, "Cohort token, delivery period, and non-negative revision are required.")
 	}
 	if len(req.Cohort.Patients) > maxPatients {

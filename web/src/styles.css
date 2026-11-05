@@ -68,6 +68,9 @@ input::placeholder { color: #a0aaa4; }
 .month-card.has-cohort { border-color: #cfe0d5; background: #f4faf6; }
 .month-card strong { text-transform: capitalize; }
 .month-card span { color: var(--muted); font-size: 10px; }
+.month-detail { margin-top: 20px; }
+.month-detail > .month-card { display: inline-flex; margin: 8px 8px 0 0; min-width: 180px; }
+.patient-table input[type="checkbox"] { width: auto; height: auto; }
 .calendar-create, .calendar-demo, .cohort-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; padding-top: 16px; border-top: 1px solid #edf1ee; }
 .calendar-demo { color: var(--muted); font-size: 11px; }
 .calendar-data-actions { margin-top: 20px; text-align: right; }

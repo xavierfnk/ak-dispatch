@@ -4,6 +4,8 @@ import { GoogleApiKeySettings } from "./GoogleApiKeySettings";
 import { UpdateSettings } from "./UpdateSettings";
 import { calculateResponseSchema, type CalculateResponse } from "./response";
 import { syntheticDemo } from "./sample";
+import { splitMonth } from "./periods";
+import { movePreservesPEC } from "./pec";
 import { PlannerService } from "../../server/cmd/desktop/frontend/bindings/patient-dispatch-planner/server/cmd/desktop";
 import type { CalculateRequest, Capacity, Cohort, CohortTeamOverride, LocationFields, Member, Patient, RunRecord, Team } from "./types";
 
@@ -21,21 +23,18 @@ function monthLabel(value: string) {
   return new Date(year, month - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
 }
 
-function cohortPeriodKey(month: string, half: 1 | 2) {
-  return `${month}#${half}`;
-}
-
-function cohortPeriodLabel(month: string, half: 1 | 2) {
+function cohortPeriodLabel(cohort: Cohort) {
+  const { expectedDeliveryMonth: month, expectedDeliveryHalf: half } = cohort;
   const [year, monthNumber] = month.split("-").map(Number);
   const lastDay = new Date(year, monthNumber, 0).getDate();
-  return `${monthLabel(month)} · ${half === 1 ? "1–14" : `15–${lastDay}`}`;
+  return `${monthLabel(month)} · ${cohort.periodStart ?? (half === 1 ? 1 : 15)}–${cohort.periodEnd ?? (half === 1 ? 14 : lastDay)}`;
 }
 
 type StoredPatient = Omit<Patient, "parity"> & { parity: string };
 type StoredTeam = Omit<Team, "minPatients" | "maxPatients"> & Partial<Capacity>;
 type StoredCohort = Omit<Cohort, "patients" | "expectedDeliveryHalf"> & {
   patients: StoredPatient[];
-  expectedDeliveryHalf?: 1 | 2;
+  expectedDeliveryHalf?: 1 | 2 | 3 | 4;
   teams?: StoredTeam[];
   capacities?: Record<string, Capacity>;
 };
@@ -78,6 +77,7 @@ function migrateCohortConfiguration(storedCohorts: Cohort[], storedTeams: Team[]
         id: legacy.id,
         expectedDeliveryMonth: legacy.expectedDeliveryMonth,
         expectedDeliveryHalf: legacy.expectedDeliveryHalf ?? 1,
+        ...(legacy.periodStart !== undefined ? { periodStart: legacy.periodStart, periodEnd: legacy.periodEnd } : {}),
         revision: legacy.revision,
         patients: legacy.patients.map((patient) => patient.parity === "unknown" ? { ...patient, parity: "" as const } : patient) as Patient[],
         ...(legacy.teamOverrides ? { teamOverrides: legacy.teamOverrides } : {}),
@@ -257,7 +257,7 @@ function statusMessage(status: string) {
   return ({
     optimal: "Voici une proposition de répartition. Vérifiez-la avant de la valider.",
     feasible: "Une proposition est disponible. Vérifiez-la attentivement avant de la valider.",
-    infeasible: "Aucune répartition ne respecte les capacités indiquées. Ajustez-les puis réessayez.",
+    infeasible: "Aucune répartition ne respecte les capacités et l’équilibre PEC 100 %. Ajustez les données puis réessayez.",
     needs_review: "Certaines informations doivent être vérifiées avant de proposer une répartition.",
   } as Record<string, string>)[status] ?? "Vérifiez les informations saisies.";
 }
@@ -270,9 +270,9 @@ export default function App() {
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [selectedCohortId, setSelectedCohortId] = useState("");
   const [activeRunId, setActiveRunId] = useState("");
-  const [newCohortPeriod, setNewCohortPeriod] = useState("");
   const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
-  const [calendarCreatePeriod, setCalendarCreatePeriod] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState("");
+  const [cohortCount, setCohortCount] = useState(1);
   const [activeTab, setActiveTab] = useState<"calendar" | "configuration">("calendar");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -343,8 +343,7 @@ export default function App() {
   );
   const inputKey = selectedCohort ? routeInputKey(selectedCohort, selectedCohortTeams) : "";
   const staleRun = Boolean(activeRun && activeRun.inputKey !== inputKey);
-  const [creationMonth, creationHalf] = calendarCreatePeriod.split("#");
-  const creatingCohortExists = cohorts.some((cohort) => cohort.expectedDeliveryMonth === creationMonth && String(cohort.expectedDeliveryHalf) === creationHalf);
+  const monthCohorts = cohorts.filter((cohort) => cohort.expectedDeliveryMonth === selectedMonth).sort((a, b) => a.expectedDeliveryHalf - b.expectedDeliveryHalf);
 
   useEffect(() => {
     setPatientListOpen(!activeRun);
@@ -387,37 +386,27 @@ export default function App() {
     setNotice("Exemple fictif chargé.");
   }
 
-  async function createCohort() {
-    const [month, halfText] = newCohortPeriod.split("#");
-    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || (halfText !== "1" && halfText !== "2")) {
-      setError("Choisissez un mois prévu valide.");
-      return;
-    }
-    const half = Number(halfText) as 1 | 2;
-    if (cohorts.some((cohort) => cohort.expectedDeliveryMonth === month && cohort.expectedDeliveryHalf === half)) {
-      setError("Une cohorte existe déjà pour cette période.");
-      return;
-    }
-    const cohort: Cohort = {
-      id: newId(),
-      expectedDeliveryMonth: month,
-      expectedDeliveryHalf: half,
-      revision: 1,
-      patients: [],
-    };
-    await db.cohorts.add(cohort);
-    setCohorts((current) => [...current, cohort].sort((a, b) => a.expectedDeliveryMonth.localeCompare(b.expectedDeliveryMonth) || a.expectedDeliveryHalf - b.expectedDeliveryHalf));
-    setSelectedCohortId(cohort.id);
-    setActiveRunId("");
-    setNewCohortPeriod("");
-    setCalendarCreatePeriod("");
-    setActiveTab("calendar");
+  async function splitSelectedMonth() {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(selectedMonth) || !Number.isInteger(cohortCount) || cohortCount < 1 || cohortCount > 4) return;
+    if (monthCohorts.length > 0 && !window.confirm(`Remplacer les cohortes de ${monthLabel(selectedMonth)} ? Toutes leurs patientes, configurations et propositions seront définitivement supprimées.`)) return;
+    const oldIds = monthCohorts.map((cohort) => cohort.id);
+    const newCohorts: Cohort[] = splitMonth(selectedMonth, cohortCount).map((period, index) => ({
+      id: newId(), expectedDeliveryMonth: selectedMonth, expectedDeliveryHalf: (index + 1) as Cohort["expectedDeliveryHalf"],
+      periodStart: period.start, periodEnd: period.end, revision: 1, patients: [],
+    }));
+    await db.transaction("rw", db.cohorts, db.runs, async () => {
+      await db.cohorts.bulkDelete(oldIds);
+      if (oldIds.length) await db.runs.where("cohortId").anyOf(oldIds).delete();
+      await db.cohorts.bulkAdd(newCohorts);
+    });
+    setCohorts((current) => [...current.filter((cohort) => !oldIds.includes(cohort.id)), ...newCohorts]);
+    setRuns((current) => current.filter((run) => !oldIds.includes(run.cohortId)));
     setError(null);
-    setNotice(`Cohorte du ${cohortPeriodLabel(cohort.expectedDeliveryMonth, cohort.expectedDeliveryHalf)} créée.`);
+    setNotice(`Cohortes de ${monthLabel(selectedMonth)} créées.`);
   }
 
   async function deleteCohort() {
-    if (!selectedCohort || !window.confirm(`Supprimer la cohorte du ${cohortPeriodLabel(selectedCohort.expectedDeliveryMonth, selectedCohort.expectedDeliveryHalf)} et son historique ?`)) return;
+    if (!selectedCohort || !window.confirm(`Supprimer la cohorte du ${cohortPeriodLabel(selectedCohort)} et son historique ?`)) return;
     await db.transaction("rw", db.cohorts, db.runs, async () => {
       await db.cohorts.delete(selectedCohort.id);
       await db.runs.where("cohortId").equals(selectedCohort.id).delete();
@@ -502,7 +491,7 @@ export default function App() {
   function addPatient() {
     if (!selectedCohort) return;
     const patient: Patient = {
-      id: newId(), name: "Nouvelle patiente", address: "", placeId: "", parity: "",
+      id: newId(), name: "Nouvelle patiente", address: "", placeId: "", parity: "", eligiblePec100: false,
     };
     saveCohort({ ...selectedCohort, patients: [...selectedCohort.patients, patient] });
   }
@@ -528,6 +517,7 @@ export default function App() {
     try {
       const patientNames: Record<string, string> = {};
       const patientParities: Record<string, Exclude<Patient["parity"], "">> = {};
+      const patientPEC100: Record<string, boolean> = {};
       const teamNames: Record<string, string> = {};
       const teamMemberIds: Record<string, string[]> = {};
       const memberNames: Record<string, string> = {};
@@ -537,10 +527,12 @@ export default function App() {
         const token = newToken("p");
         patientNames[token] = label(patient.name);
         patientParities[token] = patient.parity;
+        patientPEC100[token] = Boolean(patient.eligiblePec100);
         return {
           id: token,
           location: locationInput(patient, label(patient.name)),
           parity: patient.parity,
+          eligiblePec100: Boolean(patient.eligiblePec100),
         };
       });
       if (selectedCohortTeams.length === 0) throw new Error("Activez au moins une équipe dans le récapitulatif de la cohorte.");
@@ -593,6 +585,7 @@ export default function App() {
         inputKey: routeInputKey(selectedCohort, selectedCohortTeams),
         patientNames,
         patientParities,
+        patientPEC100,
         teamNames,
         teamMemberIds,
         memberNames,
@@ -631,6 +624,10 @@ export default function App() {
     if (!current || !sourceTeam || !targetTeam || targetTeamId === current.teamId) return;
     if (sourceTeam.assignedCount - 1 < sourceTeam.minPatients || targetTeam.assignedCount + 1 > targetTeam.maxPatients) {
       setError("Ce déplacement dépasserait la capacité d’une des deux équipes.");
+      return;
+    }
+    if (!movePreservesPEC(activeRun, patientId, targetTeamId)) {
+      setError("Ce déplacement déséquilibrerait les patientes éligibles PEC 100 %.");
       return;
     }
     const assignments = activeRun.result.assignments.map((assignment) => assignment.patientId === patientId ? { ...assignment, teamId: targetTeamId } : assignment);
@@ -680,8 +677,7 @@ export default function App() {
     setSelectedCohortId("");
     setActiveRunId("");
     setActiveTab("calendar");
-    setNewCohortPeriod("");
-    setCalendarCreatePeriod("");
+    setSelectedMonth("");
     setNotice("Toutes les données ont été supprimées.");
   }
 
@@ -705,7 +701,7 @@ export default function App() {
         {notice && <div className="message message-success" role="status">{notice}</div>}
 
         <nav className="workspace-tabs" role="tablist" aria-label="Navigation principale">
-          <button role="tab" aria-selected={activeTab === "calendar"} className={activeTab === "calendar" ? "is-active" : ""} onClick={() => { setActiveTab("calendar"); setSelectedCohortId(""); setActiveRunId(""); }}>Calendrier</button>
+          <button role="tab" aria-selected={activeTab === "calendar"} className={activeTab === "calendar" ? "is-active" : ""} onClick={() => { setActiveTab("calendar"); setSelectedCohortId(""); setSelectedMonth(""); setActiveRunId(""); }}>Calendrier</button>
           <button role="tab" aria-selected={activeTab === "configuration"} className={activeTab === "configuration" ? "is-active" : ""} onClick={() => setActiveTab("configuration")}>Configuration</button>
         </nav>
 
@@ -714,45 +710,50 @@ export default function App() {
             <div className="panel-heading panel-heading-wrap">
               <div><span className="eyebrow">COHORTES</span><h1>Calendrier</h1></div>
               <div className="calendar-year">
-                <button className="icon-button" aria-label="Année précédente" onClick={() => { setCalendarYear((year) => year - 1); setCalendarCreatePeriod(""); setNewCohortPeriod(""); }}>‹</button>
+                <button className="icon-button" aria-label="Année précédente" onClick={() => { setCalendarYear((year) => year - 1); setSelectedMonth(""); }}>‹</button>
                 <strong>{calendarYear}</strong>
-                <button className="icon-button" aria-label="Année suivante" onClick={() => { setCalendarYear((year) => year + 1); setCalendarCreatePeriod(""); setNewCohortPeriod(""); }}>›</button>
+                <button className="icon-button" aria-label="Année suivante" onClick={() => { setCalendarYear((year) => year + 1); setSelectedMonth(""); }}>›</button>
               </div>
             </div>
-            <p className="section-hint">Chaque mois comprend deux cohortes : du 1 au 14 et du 15 à la fin du mois.</p>
+            <p className="section-hint">Choisissez un mois, puis répartissez-le en une à quatre cohortes.</p>
             <div className="month-grid">
-              {MONTHS.flatMap((month, index) => ([1, 2] as const).map((half) => ({ month, index, half }))).map(({ month, index, half }) => {
+              {MONTHS.map((month, index) => {
                 const monthValue = `${calendarYear}-${String(index + 1).padStart(2, "0")}`;
-                const value = cohortPeriodKey(monthValue, half);
-                const cohort = cohorts.find((item) => item.expectedDeliveryMonth === monthValue && item.expectedDeliveryHalf === half);
+                const monthItems = cohorts.filter((item) => item.expectedDeliveryMonth === monthValue);
                 return (
                   <button
                     type="button"
-                    className={`month-card ${cohort ? "has-cohort" : ""} ${calendarCreatePeriod === value || cohort?.id === selectedCohortId ? "is-selected" : ""}`}
-                    key={value}
+                    className={`month-card ${monthItems.length ? "has-cohort" : ""} ${selectedMonth === monthValue ? "is-selected" : ""}`}
+                    key={monthValue}
                     onClick={() => {
                       setError(null);
-                      if (cohort) {
-                        setSelectedCohortId(cohort.id);
-                        setActiveRunId(runs.find((run) => run.cohortId === cohort.id)?.id ?? "");
-                        setCalendarCreatePeriod("");
-                        setNewCohortPeriod("");
-                      } else {
-                        setCalendarCreatePeriod(value);
-                        setNewCohortPeriod(value);
-                      }
+                      setSelectedMonth(monthValue);
+                      setCohortCount(monthItems.length || 1);
                     }}
                   >
-                    <strong>{month} · {half === 1 ? "1–14" : `15–${new Date(calendarYear, index + 1, 0).getDate()}`}</strong>
-                    <span>{cohort ? `${cohort.patients.length} ${cohort.patients.length === 1 ? "patiente" : "patientes"}` : "Aucune cohorte"}</span>
+                    <strong>{month}</strong>
+                    <span>{monthItems.length ? `${monthItems.length} ${monthItems.length === 1 ? "cohorte" : "cohortes"} · ${monthItems.reduce((sum, cohort) => sum + cohort.patients.length, 0)} patientes` : "Aucune cohorte"}</span>
                   </button>
                 );
               })}
             </div>
-            {calendarCreatePeriod && !creatingCohortExists && (
-              <div className="calendar-create">
-                <span>Créer la cohorte du <strong>{cohortPeriodLabel(creationMonth, Number(creationHalf) as 1 | 2)}</strong> ?</span>
-                <button className="button button-primary" disabled={running} onClick={() => runStorageAction(createCohort)}>Créer la cohorte</button>
+            {selectedMonth && (
+              <div className="month-detail">
+                <h2>{monthLabel(selectedMonth)}</h2>
+                {monthCohorts.map((cohort) => (
+                  <button type="button" className="month-card" key={cohort.id} onClick={() => { setSelectedCohortId(cohort.id); setActiveRunId(runs.find((run) => run.cohortId === cohort.id)?.id ?? ""); }}>
+                    <strong>{cohortPeriodLabel(cohort)}</strong><span>{cohort.patients.length} patientes</span>
+                  </button>
+                ))}
+                <p className="section-hint">Nouveau découpage : {splitMonth(selectedMonth, cohortCount).map((period) => `${period.start}–${period.end}`).join(" · ")}</p>
+                <div className="calendar-create">
+                  <label className="field-label">Nombre de cohortes
+                    <select value={cohortCount} onChange={(event) => setCohortCount(Number(event.target.value))}>
+                      {[1, 2, 3, 4].map((count) => <option value={count} key={count}>{count}</option>)}
+                    </select>
+                  </label>
+                  <button className="button button-primary" disabled={running} onClick={() => runStorageAction(splitSelectedMonth)}>{monthCohorts.length ? "Remplacer les cohortes" : "Créer les cohortes"}</button>
+                </div>
               </div>
             )}
             {cohorts.length === 0 && teams.length === 0 && (
@@ -808,10 +809,10 @@ export default function App() {
             <nav className="cohort-breadcrumb" aria-label="Fil d’Ariane">
               <button className="breadcrumb-link" onClick={() => { setSelectedCohortId(""); setActiveRunId(""); }}>Calendrier</button>
               <span aria-hidden="true">›</span>
-              <span>{cohortPeriodLabel(selectedCohort.expectedDeliveryMonth, selectedCohort.expectedDeliveryHalf)}</span>
+              <span>{cohortPeriodLabel(selectedCohort)}</span>
             </nav>
             <section className="page-heading">
-              <div><span className="eyebrow">{cohortPeriodLabel(selectedCohort.expectedDeliveryMonth, selectedCohort.expectedDeliveryHalf)}</span><h1>Patientes et répartition</h1><p>Les patientes saisies sont conservées pour cette période sur cet appareil.</p></div>
+              <div><span className="eyebrow">{cohortPeriodLabel(selectedCohort)}</span><h1>Patientes et répartition</h1><p>Les patientes saisies sont conservées pour cette période sur cet appareil.</p></div>
               <button className="text-button danger-text" disabled={running} onClick={() => runStorageAction(deleteCohort)}>Supprimer la cohorte</button>
             </section>
             <details className="panel cohort-teams-panel">
@@ -860,17 +861,18 @@ export default function App() {
               {selectedCohort.patients.length === 0 && <p className="section-hint">Ajoutez les patientes prévues pour cette période.</p>}
               <div className="table-wrap">
                 <table className="patient-table">
-                  <thead><tr><th scope="col">Nom</th><th scope="col">Parité</th><th scope="col">Adresse</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+                  <thead><tr><th scope="col">Nom</th><th scope="col">Parité</th><th scope="col">Éligible PEC 100 %</th><th scope="col">Adresse</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
                   <tbody>
                     {selectedCohort.patients.map((patient) => (
                       <tr key={patient.id}>
                         <td><label className="sr-only" htmlFor={`patient-name-${patient.id}`}>Nom de la patiente</label><input id={`patient-name-${patient.id}`} value={patient.name} onChange={(event) => updatePatient(patient.id, { name: event.target.value })} /></td>
                         <td><label className="sr-only" htmlFor={`patient-parity-${patient.id}`}>Parité</label><select id={`patient-parity-${patient.id}`} value={patient.parity} onChange={(event) => updatePatient(patient.id, { parity: event.target.value as Patient["parity"] })}><option value="">Choisir…</option><option value="primiparous">Primipare</option><option value="multiparous">Multipare</option></select></td>
+                        <td><input type="checkbox" aria-label={`Éligible PEC 100 % : ${label(patient.name)}`} checked={Boolean(patient.eligiblePec100)} onChange={(event) => updatePatient(patient.id, { eligiblePec100: event.target.checked })} /></td>
                         <td className="location-cell"><LocationEditor idPrefix={`patient-location-${patient.id}`} value={patient} onChange={(patch) => updatePatient(patient.id, patch)} /></td>
                         <td><button className="icon-button" aria-label={`Retirer ${label(patient.name)}`} title="Retirer la patiente" onClick={() => saveCohort({ ...selectedCohort, patients: selectedCohort.patients.filter((item) => item.id !== patient.id) })}>×</button></td>
                       </tr>
                     ))}
-                    {selectedCohort.patients.length === 0 && <tr><td className="empty-cell" colSpan={4}>Aucune patiente pour le moment.</td></tr>}
+                    {selectedCohort.patients.length === 0 && <tr><td className="empty-cell" colSpan={5}>Aucune patiente pour le moment.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -915,7 +917,7 @@ export default function App() {
                               const sourceTeam = activeRun.result.teams.find((item) => item.teamId === assignment.teamId);
                               const targetTeam = activeRun.result.teams.find((item) => item.teamId === moveTargetTeamId);
                               const targetPreview = activeRun.result.candidateTravelCosts.find((item) => item.patientId === assignment.patientId && item.teamId === moveTargetTeamId);
-                              const targetAllowed = Boolean(sourceTeam && targetTeam && sourceTeam.assignedCount - 1 >= sourceTeam.minPatients && targetTeam.assignedCount + 1 <= targetTeam.maxPatients);
+                              const targetAllowed = Boolean(sourceTeam && targetTeam && sourceTeam.assignedCount - 1 >= sourceTeam.minPatients && targetTeam.assignedCount + 1 <= targetTeam.maxPatients && movePreservesPEC(activeRun, assignment.patientId, targetTeam.teamId));
                               return (
                                 <div className="assigned-patient" key={assignment.patientId}>
                                   <div className="patient-result-row">
@@ -923,6 +925,7 @@ export default function App() {
                                       <summary><span>{activeRun.patientNames[assignment.patientId] ?? "Patiente"}</span></summary>
                                       <dl className="patient-result-details">
                                         <div><dt>Parité</dt><dd>{parityLabel(activeRun.patientParities?.[assignment.patientId])}</dd></div>
+                                        <div><dt>Éligible PEC 100 %</dt><dd>{activeRun.patientPEC100 ? (activeRun.patientPEC100[assignment.patientId] ? "Oui" : "Non") : "—"}</dd></div>
                                         <div><dt>Temps moyen de trajet</dt><dd>{explanation ? minutes(explanation.meanTravelSeconds) : "—"}</dd></div>
                                         <div className="patient-travel-detail">
                                           <dt>Temps de trajet par sage-femme</dt>
@@ -980,8 +983,8 @@ export default function App() {
                                         <select className="select-control" value={moveTargetTeamId} onChange={(event) => setMoveTargetTeamId(event.target.value)}>
                                           <option value="">Choisir une équipe…</option>
                                           {activeRun.result.teams.filter((item) => item.teamId !== assignment.teamId).map((item) => {
-                                            const allowed = Boolean(sourceTeam && sourceTeam.assignedCount - 1 >= sourceTeam.minPatients && item.assignedCount + 1 <= item.maxPatients);
-                                            return <option key={item.teamId} value={item.teamId} disabled={!allowed}>{activeRun.teamNames[item.teamId] ?? "Équipe"}{allowed ? "" : " — capacité incompatible"}</option>;
+                                            const allowed = Boolean(sourceTeam && sourceTeam.assignedCount - 1 >= sourceTeam.minPatients && item.assignedCount + 1 <= item.maxPatients && movePreservesPEC(activeRun, assignment.patientId, item.teamId));
+                                            return <option key={item.teamId} value={item.teamId} disabled={!allowed}>{activeRun.teamNames[item.teamId] ?? "Équipe"}{allowed ? "" : " — capacité ou équilibre PEC incompatible"}</option>;
                                           })}
                                         </select>
                                       </label>
