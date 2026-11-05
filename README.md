@@ -2,16 +2,16 @@
 
 **English** | [Français](docs/README.fr.md)
 
-Patient Dispatch Planner is a local-first Windows/macOS desktop tool for helping maternity-care coordinators prepare draft assignments of patients to midwife teams. Cohorts are organized by the first or second half of an expected delivery month. The result is a recommendation for a coordinator to review—not an automatic or final assignment.
+Patient Dispatch Planner is a local-first Windows/macOS desktop tool for helping maternity-care coordinators prepare draft assignments of patients to midwife teams. Each expected delivery month can be divided into one to four cohorts. The result is a recommendation for a coordinator to review—not an automatic or final assignment.
 
 The app is built with Go, React, TypeScript, and Wails. The React interface runs in the desktop WebView, while a local Go service validates inputs, requests route times when asked, and runs the assignment optimizer on the device.
 
 ## How it works
 
 - Configure midwife teams, their members and locations, and minimum/maximum cohort capacities.
-- Create a cohort for a delivery month and half-month period, then enter patient locations and parity.
+- Split a delivery month into cohorts, then enter patient locations, parity and PEC 100% eligibility. Replacing an existing split deletes its cohorts and history after confirmation.
 - When a coordinator explicitly starts a calculation, the app sends the team-member and patient locations to Google Routes API to compare bicycle and transit travel times. Names, parity, capacities, and assignment data are not sent to Google.
-- The Go optimizer combines route times with capacity balance and cohort parity to produce a draft. Coordinators can review the explanation and make capacity-preserving manual changes.
+- The Go optimizer balances PEC 100% eligible patients across active teams (counts differ by at most one), while respecting capacities and considering route times and parity. Coordinators can review the explanation and make manual changes that preserve these constraints.
 - Team and cohort records are stored in the desktop WebView’s local IndexedDB. They can be exported as JSON or deleted in the app. Google API keys are stored in the operating system’s credential store.
 
 The release app has no remote application server, cloud database, analytics, or telemetry. Route calculation is the exception to local-only processing: Google receives the submitted locations and request metadata and handles them under the terms for the API key’s project. Route results for real Google calculations are held in app memory and are not saved in the local database. Local browser storage is not application-level encryption.

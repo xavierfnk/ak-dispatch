@@ -94,7 +94,7 @@ func TestRouteRequestsContainOnlyAddressesAndRoutingOptions(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, forbidden := range []string{"team-private", "member-private", "patient-private", "primiparous"} {
+		for _, forbidden := range []string{"team-private", "member-private", "patient-private", "primiparous", "eligiblePec100"} {
 			if bytes.Contains(payload, []byte(forbidden)) {
 				t.Errorf("Google request included local assignment data %q: %s", forbidden, payload)
 			}
@@ -118,7 +118,7 @@ func TestRouteRequestsContainOnlyAddressesAndRoutingOptions(t *testing.T) {
 			ID: "member-private", Location: dispatch.Location{Address: "40 Rue de Rivoli, Paris"},
 		}}}},
 		Cohort: dispatch.Cohort{Patients: []dispatch.Patient{{
-			ID: "patient-private", Parity: "primiparous", Location: dispatch.Location{Address: "27 Rue Saint-Denis, Paris"},
+			ID: "patient-private", Parity: "primiparous", EligiblePEC100: true, Location: dispatch.Location{Address: "27 Rue Saint-Denis, Paris"},
 		}}},
 	})
 	if err != nil {

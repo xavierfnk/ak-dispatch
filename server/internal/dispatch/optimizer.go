@@ -59,17 +59,33 @@ func optimize(ctx context.Context, req Request, costs [][]float64, weights Weigh
 	})
 
 	remainingEligible := make([][]int, n+1)
+	remainingPEC := make([][]int, n+1)
 	for i := range remainingEligible {
 		remainingEligible[i] = make([]int, teamCount)
+		remainingPEC[i] = make([]int, teamCount)
 	}
+	pecTotal := 0
 	for depth := n - 1; depth >= 0; depth-- {
 		copy(remainingEligible[depth], remainingEligible[depth+1])
+		copy(remainingPEC[depth], remainingPEC[depth+1])
+		if patients[order[depth]].EligiblePEC100 {
+			pecTotal++
+		}
 		for _, teamIndex := range options[order[depth]] {
 			remainingEligible[depth][teamIndex]++
+			if patients[order[depth]].EligiblePEC100 {
+				remainingPEC[depth][teamIndex]++
+			}
 		}
 	}
 
 	loads := make([]int, teamCount)
+	pecLoads := make([]int, teamCount)
+	pecMin, pecMax := 0, 0
+	if teamCount > 0 {
+		pecMin = pecTotal / teamCount
+		pecMax = (pecTotal + teamCount - 1) / teamCount
+	}
 	assignment := make([]int, n)
 	best := searchResult{objective: math.Inf(1)}
 	found := false
@@ -88,6 +104,11 @@ func optimize(ctx context.Context, req Request, costs [][]float64, weights Weigh
 		}
 		if !canStillFit(depth, n, teams, loads, remainingEligible[depth]) {
 			return
+		}
+		for i := range teams {
+			if pecLoads[i] > pecMax || pecLoads[i]+remainingPEC[depth][i] < pecMin {
+				return
+			}
 		}
 		if found && cannotBeat(lowerBound(depth, n, teams, loads, remainingEligible[depth], order, options, costs, geographySeconds, req.Settings.ReferenceTravelTimeMinutes, weights), best) {
 			return
@@ -117,9 +138,15 @@ func optimize(ctx context.Context, req Request, costs [][]float64, weights Weigh
 				continue
 			}
 			loads[teamIndex]++
+			if patients[patientIndex].EligiblePEC100 {
+				pecLoads[teamIndex]++
+			}
 			assignment[patientIndex] = teamIndex
 			visit(depth+1, geographySeconds+costs[teamIndex][patientIndex])
 			loads[teamIndex]--
+			if patients[patientIndex].EligiblePEC100 {
+				pecLoads[teamIndex]--
+			}
 			if timedOut || ctx.Err() != nil {
 				return
 			}

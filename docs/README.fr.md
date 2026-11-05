@@ -2,14 +2,14 @@
 
 [English](../README.md) | **Français**
 
-**Patient Dispatch Planner** est une application de bureau locale destinée à aider les coordinatrices de maternité à préparer des propositions de répartition des patientes entre des équipes de sages-femmes. Les cohortes correspondent à la première ou à la seconde moitié d’un mois prévu d’accouchement. Toute proposition reste à vérifier par une personne : l’application ne décide pas de l’affectation finale.
+**Patient Dispatch Planner** est une application de bureau locale destinée à aider les coordinatrices de maternité à préparer des propositions de répartition des patientes entre des équipes de sages-femmes. Chaque mois prévu d’accouchement peut être divisé en une à quatre cohortes. Toute proposition reste à vérifier par une personne : l’application ne décide pas de l’affectation finale.
 
 ## Fonctionnement
 
 - Configurez les équipes, leurs membres et lieux, ainsi que les capacités minimale et maximale de chaque équipe.
-- Créez une cohorte pour une période et saisissez les lieux et la parité des patientes.
+- Divisez un mois en cohortes et saisissez les lieux, la parité et l’éligibilité PEC 100 % des patientes. Remplacer un découpage existant supprime les cohortes et leur historique après confirmation.
 - Lorsqu’une coordinatrice lance explicitement un calcul, l’application transmet les lieux des patientes et des membres d’équipe à l’API Google Routes afin de comparer les trajets à vélo et en transports en commun. Les noms, la parité, les capacités et les affectations ne sont pas transmis à Google.
-- Le service Go local combine les temps de trajet, l’équilibre des capacités et la parité de la cohorte pour produire une proposition explicable. La coordinatrice peut la vérifier et effectuer des changements qui respectent les capacités.
+- Le service Go local répartit les patientes éligibles PEC 100 % équitablement entre les équipes actives (écart maximal d’une patiente), respecte les capacités et prend en compte les trajets et la parité. Les changements manuels respectent également ces contraintes.
 
 L’interface React/TypeScript communique directement avec le service Go par Wails. Les équipes, cohortes et données de formulaire sont conservées dans IndexedDB du WebView de l’application. Les clés API Google sont enregistrées dans le trousseau du système d’exploitation. Les résultats Google sont conservés en mémoire et ne sont pas enregistrés dans la base locale.
 

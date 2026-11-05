@@ -119,10 +119,109 @@ func TestCalculateReportsAggregateCapacityInfeasibility(t *testing.T) {
 
 func TestCalculateRejectsInvalidCohortHalf(t *testing.T) {
 	req := baseRequest()
-	req.Cohort.ExpectedDeliveryHalf = 3
+	req.Cohort.ExpectedDeliveryHalf = 5
 	_, err := Calculate(context.Background(), req)
 	if _, ok := err.(*ValidationError); !ok {
 		t.Fatalf("invalid cohort half should be rejected, got %v", err)
+	}
+}
+
+func TestFourthCohortIsAccepted(t *testing.T) {
+	req := baseRequest()
+	req.Cohort.ExpectedDeliveryHalf = 4
+	got, err := Calculate(context.Background(), req)
+	if err != nil || got.ResultStatus != "optimal" {
+		t.Fatalf("fourth cohort should be accepted, status=%s error=%v", got.ResultStatus, err)
+	}
+}
+
+func TestPECEligiblePatientsAreDistributedEqually(t *testing.T) {
+	req := baseRequest()
+	req.Cohort.Patients = []Patient{
+		{ID: "p1", Location: coordinates(0, 0), Parity: "primiparous", EligiblePEC100: true},
+		{ID: "p2", Location: coordinates(0, 0), Parity: "multiparous", EligiblePEC100: true},
+		{ID: "p3", Location: coordinates(0, 0), Parity: "primiparous", EligiblePEC100: true},
+	}
+	req.Teams = []Team{
+		{ID: "a", MaxPatients: 3, Members: []Member{{ID: "ma", Location: coordinates(0, 0)}}},
+		{ID: "b", MaxPatients: 3, Members: []Member{{ID: "mb", Location: coordinates(1, 1)}}},
+		{ID: "c", MaxPatients: 3, Members: []Member{{ID: "mc", Location: coordinates(2, 2)}}},
+	}
+	got, err := Calculate(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int{}
+	for _, assignment := range got.Assignments {
+		counts[assignment.TeamID]++
+	}
+	if got.ResultStatus != "optimal" || counts["a"] != 1 || counts["b"] != 1 || counts["c"] != 1 {
+		t.Fatalf("expected one eligible patient per team, got status %s counts %v", got.ResultStatus, counts)
+	}
+}
+
+func TestPECDistributionReportsInfeasibleWhenCapacityPreventsBalance(t *testing.T) {
+	req := baseRequest()
+	req.Cohort.Patients = []Patient{
+		{ID: "p1", Location: coordinates(0, 0), Parity: "primiparous", EligiblePEC100: true},
+		{ID: "p2", Location: coordinates(0, 0), Parity: "multiparous", EligiblePEC100: true},
+	}
+	req.Teams = []Team{
+		{ID: "a", MaxPatients: 2, Members: []Member{{ID: "ma", Location: coordinates(0, 0)}}},
+		{ID: "b", MaxPatients: 0, Members: []Member{{ID: "mb", Location: coordinates(0, 0)}}},
+	}
+	got, err := Calculate(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ResultStatus != "infeasible" || len(got.Assignments) != 0 {
+		t.Fatalf("expected infeasible without an unbalanced assignment, got %+v", got)
+	}
+}
+
+func TestPECDistributionAllowsRemainderAndNonEligiblePatients(t *testing.T) {
+	req := baseRequest()
+	req.Cohort.Patients = []Patient{
+		{ID: "p1", Location: coordinates(0, 0), Parity: "primiparous", EligiblePEC100: true},
+		{ID: "p2", Location: coordinates(0, 0), Parity: "multiparous", EligiblePEC100: true},
+		{ID: "p3", Location: coordinates(0, 0), Parity: "multiparous"},
+	}
+	req.Teams = []Team{
+		{ID: "a", MaxPatients: 3, Members: []Member{{ID: "ma", Location: coordinates(0, 0)}}},
+		{ID: "b", MaxPatients: 3, Members: []Member{{ID: "mb", Location: coordinates(1, 1)}}},
+		{ID: "c", MaxPatients: 3, Members: []Member{{ID: "mc", Location: coordinates(2, 2)}}},
+	}
+	got, err := Calculate(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int{}
+	for _, assignment := range got.Assignments {
+		if assignment.PatientID != "p3" {
+			counts[assignment.TeamID]++
+		}
+	}
+	if got.ResultStatus != "optimal" || len(got.Assignments) != 3 || len(counts) != 2 {
+		t.Fatalf("expected two different teams for eligible patients, got %+v", got.Assignments)
+	}
+}
+
+func TestPECDistributionReportsInfeasibleForConflictingEligibility(t *testing.T) {
+	req := baseRequest()
+	req.Cohort.Patients = []Patient{
+		{ID: "p1", Location: coordinates(0, 0), Parity: "primiparous", EligiblePEC100: true, EligibleTeamIDs: []string{"a"}},
+		{ID: "p2", Location: coordinates(0, 0), Parity: "multiparous", EligiblePEC100: true, EligibleTeamIDs: []string{"a"}},
+	}
+	req.Teams = []Team{
+		{ID: "a", MaxPatients: 2, Members: []Member{{ID: "ma", Location: coordinates(0, 0)}}},
+		{ID: "b", MaxPatients: 2, Members: []Member{{ID: "mb", Location: coordinates(0, 0)}}},
+	}
+	got, err := Calculate(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ResultStatus != "infeasible" || len(got.Assignments) != 0 {
+		t.Fatalf("expected infeasible with conflicting eligibility, got %+v", got)
 	}
 }
 

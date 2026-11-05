@@ -14,14 +14,14 @@ L’application est conçue pour fonctionner localement : elle ne dispose pas de
 
 | Données | Traitement et stockage |
 | --- | --- |
-| Noms, adresses/lieux, parité des patientes ; équipes, noms et lieux des membres ; capacités et cohortes | Saisis et conservés localement dans IndexedDB du profil WebView. Les identifiants de fiches sont créés dans l’interface. |
+| Noms, adresses/lieux, parité et éligibilité PEC 100 % des patientes ; équipes, noms et lieux des membres ; capacités et cohortes | Saisis et conservés localement dans IndexedDB du profil WebView. Les identifiants de fiches sont créés dans l’interface. |
 | Historique local éventuellement présent | Conservé dans IndexedDB ; les calculs Google de la version actuelle ne l’alimentent pas. |
 | Clé API Google Maps | Conservée dans le trousseau de mots de passe du système d’exploitation, et non dans IndexedDB ou l’export. Elle est lue par le service Go local et n’est pas renvoyée à l’interface après saisie. |
 | Lieux des patientes et des membres actifs, options d’itinéraire et métadonnées techniques de requête | Transmis à Google Routes uniquement lorsque l’utilisateur lance un calcul. Google traite ces données selon les conditions et politiques applicables au projet Google concerné. |
 | Vérification et téléchargement d’une mise à jour | Sur action explicite de l’utilisateur, le service Go contacte l’API GitHub Releases et télécharge l’artefact de l’application correspondant au système et à l’architecture. GitHub reçoit les métadonnées ordinaires de la requête réseau (notamment l’adresse IP) ; aucune donnée de patiente, d’équipe ou de planification n’est incluse. |
 | Résultats de calcul Google | Reçus par le service Go local et affichés dans l’interface ; gardés en mémoire de l’application et non enregistrés dans IndexedDB ni dans l’export. Ils disparaissent à la fermeture de l’application. |
 
-L’export JSON peut contenir des noms, des adresses, de la parité et des données d’historique locales. Il doit être protégé comme un fichier potentiellement sensible. **Tout supprimer** efface les données des magasins locaux de l’application ; la suppression de la clé API est une action distincte. Ces actions ne suppriment pas les fichiers exportés ni les données éventuellement traitées par Google.
+L’export JSON peut contenir des noms, des adresses, de la parité, l’éligibilité PEC 100 % et des données d’historique locales. Il doit être protégé comme un fichier potentiellement sensible. **Tout supprimer** efface les données des magasins locaux de l’application ; la suppression de la clé API est une action distincte. Ces actions ne suppriment pas les fichiers exportés ni les données éventuellement traitées par Google.
 
 Le stockage Web local n’est pas chiffré par l’application. Sécurisez les comptes de l’appareil, utilisez le chiffrement complet du disque lorsqu’il est disponible et protégez les sauvegardes et exports.
 
