@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { db, emptySettings } from "./db";
 import { GoogleApiKeySettings } from "./GoogleApiKeySettings";
+import { UpdateSettings } from "./UpdateSettings";
 import { calculateResponseSchema, type CalculateResponse } from "./response";
 import { syntheticDemo } from "./sample";
 import { PlannerService } from "../../server/cmd/desktop/frontend/bindings/patient-dispatch-planner/server/cmd/desktop";
@@ -771,6 +772,7 @@ export default function App() {
               <button className="button button-secondary" onClick={() => runStorageAction(addTeam)}>＋ Ajouter une équipe</button>
             </section>
             <GoogleApiKeySettings configured={googleKeyConfigured} onChange={setGoogleKeyConfigured} />
+            <UpdateSettings />
             {teams.length === 0 && <div className="inline-notice">Ajoutez les équipes qui prendront en charge les cohortes.</div>}
             <div className="team-grid">
               {teams.map((team) => (
