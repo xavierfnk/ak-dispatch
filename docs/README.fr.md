@@ -22,7 +22,7 @@ L’application publiée n’a ni serveur applicatif distant, ni base de donnée
 Téléchargez la dernière version depuis les [versions publiées sur GitHub](https://github.com/xavierfnk/ak-dispatch/releases/latest). N’ouvrez le fichier que si vous faites confiance à sa source et souhaitez installer l’application.
 
 - **Windows :** téléchargez `patient-dispatch-planner-windows-x64.exe`. Créez le dossier `%LOCALAPPDATA%\Programs\Patient Dispatch Planner`, déplacez-y le fichier, renommez-le `patient-dispatch-planner.exe`, puis ouvrez-le. Si SmartScreen indique que l’application est inconnue, sélectionnez **Informations complémentaires → Exécuter quand même** si vous faites confiance au fichier.
-- **macOS :** téléchargez le ZIP `macos-arm64` pour une puce Apple ou `macos-x64` pour un processeur Intel. Décompressez-le et déplacez `patient-dispatch-planner.app` dans `~/Applications` (créez ce dossier si nécessaire), puis ouvrez l’application. Si macOS la bloque, ouvrez **Réglages Système → Confidentialité et sécurité**, sélectionnez **Ouvrir quand même**, puis confirmez. Consultez les [instructions d’Apple](https://support.apple.com/fr-fr/102445).
+- **macOS (puce Apple) :** téléchargez le ZIP `macos-arm64`. Décompressez-le et déplacez `patient-dispatch-planner.app` dans `~/Applications` (créez ce dossier si nécessaire), puis ouvrez l’application. Si macOS la bloque, ouvrez **Réglages Système → Confidentialité et sécurité**, sélectionnez **Ouvrir quand même**, puis confirmez. Consultez les [instructions d’Apple](https://support.apple.com/fr-fr/102445). Les Mac Intel ne reçoivent plus de nouvelles versions ni de mises à jour.
 - **Linux x64 :** sur Ubuntu 24.04, installez le moteur nécessaire avec `sudo apt install libwebkitgtk-6.0-4` et utilisez une session de bureau avec un trousseau Secret Service déverrouillé pour la clé API. Téléchargez `patient-dispatch-planner-linux-x64`, puis installez-le avec votre compte habituel (adaptez `~/Downloads` si nécessaire) :
 
   ```sh
@@ -35,7 +35,7 @@ Téléchargez la dernière version depuis les [versions publiées sur GitHub](ht
 
 L’exécutable Windows n’est pas signé. L’application macOS n’est ni signée avec un Developer ID ni notariée. Ces avertissements sont donc attendus. Sur un appareil géré, le contournement peut être interdit. Contactez votre administrateur plutôt que de désactiver les protections de sécurité. L’application peut installer les mises à jour dans ces emplacements si votre compte peut écrire dans le dossier.
 
-Pour rechercher une mise à jour, ouvrez **Configuration → Mises à jour**, puis choisissez **Installer et redémarrer**. L’application vérifie l’empreinte SHA-256 et la signature Ed25519 du fichier téléchargé avant de se remplacer.
+Pour rechercher une mise à jour, ouvrez **Configuration → Mises à jour**, puis choisissez **Installer et redémarrer**. Si la nouvelle version n’est pas encore prête pour votre plateforme, réessayez plus tard. Les anciennes versions de l’application peuvent afficher une erreur de recherche à la place. L’application vérifie l’empreinte SHA-256 et la signature Ed25519 du fichier téléchargé avant de se remplacer.
 
 ## Développement
 

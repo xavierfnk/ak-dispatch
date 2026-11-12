@@ -22,6 +22,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
       - run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
+      - run: node --test .github/scripts/sign-update.test.cjs
       - run: wails3 package GOOS=linux GOARCH=amd64
         working-directory: server/cmd/desktop
       - run: go test ./...
