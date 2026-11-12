@@ -185,6 +185,8 @@ func githubClient(timeout time.Duration) *http.Client {
 func releaseAsset(release githubRelease, goos, goarch string) (githubAsset, error) {
 	name := ""
 	switch {
+	case goos == "linux" && goarch == "amd64":
+		name = "patient-dispatch-planner-linux-x64"
 	case goos == "windows" && goarch == "amd64":
 		name = "patient-dispatch-planner-windows-x64.exe"
 	case goos == "darwin" && goarch == "amd64":

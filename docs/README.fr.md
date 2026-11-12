@@ -23,6 +23,15 @@ Téléchargez la dernière version depuis les [versions publiées sur GitHub](ht
 
 - **Windows :** téléchargez `patient-dispatch-planner-windows-x64.exe`. Créez le dossier `%LOCALAPPDATA%\Programs\Patient Dispatch Planner`, déplacez-y le fichier, renommez-le `patient-dispatch-planner.exe`, puis ouvrez-le. Si SmartScreen indique que l’application est inconnue, sélectionnez **Informations complémentaires → Exécuter quand même** si vous faites confiance au fichier.
 - **macOS :** téléchargez le ZIP `macos-arm64` pour une puce Apple ou `macos-x64` pour un processeur Intel. Décompressez-le et déplacez `patient-dispatch-planner.app` dans `~/Applications` (créez ce dossier si nécessaire), puis ouvrez l’application. Si macOS la bloque, ouvrez **Réglages Système → Confidentialité et sécurité**, sélectionnez **Ouvrir quand même**, puis confirmez. Consultez les [instructions d’Apple](https://support.apple.com/fr-fr/102445).
+- **Linux x64 :** sur Ubuntu 24.04, installez le moteur nécessaire avec `sudo apt install libwebkitgtk-6.0-4` et utilisez une session de bureau avec un trousseau Secret Service déverrouillé pour la clé API. Téléchargez `patient-dispatch-planner-linux-x64`, puis installez-le avec votre compte habituel (adaptez `~/Downloads` si nécessaire) :
+
+  ```sh
+  mkdir -p ~/.local/bin
+  install -m 755 ~/Downloads/patient-dispatch-planner-linux-x64 ~/.local/bin/patient-dispatch-planner
+  ~/.local/bin/patient-dispatch-planner
+  ```
+
+  Conservez l’exécutable à cet emplacement et les droits d’écriture sur le dossier pour les mises à jour sur place. Ne lancez pas l’application avec `sudo` : les données locales et les identifiants appartiennent à votre compte de bureau. L’exécutable est compilé sur Ubuntu 24.04 ; d’autres distributions ou versions plus anciennes peuvent manquer de bibliothèques compatibles.
 
 L’exécutable Windows n’est pas signé. L’application macOS n’est ni signée avec un Developer ID ni notariée. Ces avertissements sont donc attendus. Sur un appareil géré, le contournement peut être interdit. Contactez votre administrateur plutôt que de désactiver les protections de sécurité. L’application peut installer les mises à jour dans ces emplacements si votre compte peut écrire dans le dossier.
 
@@ -30,7 +39,7 @@ Pour rechercher une mise à jour, ouvrez **Configuration → Mises à jour**, pu
 
 ## Développement
 
-Prérequis : la version de Go indiquée dans `server/go.mod`, Node.js 22, la CLI Wails v3 et ses prérequis de plateforme (outils de ligne de commande Xcode sur macOS ; WebView2 sur Windows). Task est facultatif.
+Prérequis : la version de Go indiquée dans `server/go.mod`, Node.js 22, la CLI Wails v3 et ses prérequis de plateforme (outils de ligne de commande Xcode sur macOS ; WebView2 sur Windows ; compilateur C, `libgtk-4-dev` et `libwebkitgtk-6.0-dev` sur Ubuntu 24.04). Task est facultatif.
 
 ```sh
 go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0

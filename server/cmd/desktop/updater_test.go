@@ -35,6 +35,7 @@ func TestReleaseAssetSelectsPlatformAndValidatesDigest(t *testing.T) {
 	release := githubRelease{
 		TagName: "v1.2.3",
 		Assets: []githubAsset{
+			{Name: "patient-dispatch-planner-linux-x64", BrowserDownloadURL: githubReleaseURL + "v1.2.3/patient-dispatch-planner-linux-x64", Digest: digest, Size: 10},
 			{Name: "patient-dispatch-planner-windows-x64.exe", BrowserDownloadURL: githubReleaseURL + "v1.2.3/patient-dispatch-planner-windows-x64.exe", Digest: digest, Size: 10},
 			{Name: "patient-dispatch-planner-macos-arm64.zip", BrowserDownloadURL: githubReleaseURL + "v1.2.3/patient-dispatch-planner-macos-arm64.zip", Digest: digest, Size: 20},
 			{Name: "patient-dispatch-planner-macos-arm64.zip.sig", BrowserDownloadURL: githubReleaseURL + "v1.2.3/patient-dispatch-planner-macos-arm64.zip.sig", Digest: digest, Size: ed25519.SignatureSize},
@@ -51,7 +52,10 @@ func TestReleaseAssetSelectsPlatformAndValidatesDigest(t *testing.T) {
 	if _, err := releaseAsset(release, "darwin", "amd64"); err == nil {
 		t.Fatal("missing macOS x64 asset was accepted")
 	}
-	if _, err := releaseAsset(release, "linux", "amd64"); err == nil {
+	if asset, err := releaseAsset(release, "linux", "amd64"); err != nil || asset.Name != "patient-dispatch-planner-linux-x64" {
+		t.Fatalf("linux x64 release asset = %#v, %v", asset, err)
+	}
+	if _, err := releaseAsset(release, "linux", "arm64"); err == nil {
 		t.Fatal("unsupported platform was accepted")
 	}
 }

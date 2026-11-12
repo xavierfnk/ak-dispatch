@@ -16,6 +16,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - runner: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+            asset: linux-x64
           - runner: windows-latest
             goos: windows
             goarch: amd64
@@ -43,6 +47,9 @@ jobs:
           go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
         shell: bash
+      - name: Install Linux build dependencies
+        if: matrix.goos == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
       - name: Build app
         run: |
           export APP_VERSION="${GITHUB_REF_NAME}"
@@ -70,9 +77,12 @@ jobs:
           if [ "${{ matrix.goos }}" = "darwin" ]; then
             ditto -c -k --sequesterRsrc --keepParent bin/patient-dispatch-planner.app \
               "$RUNNER_TEMP/release-assets/patient-dispatch-planner-${{ matrix.asset }}.zip"
-          else
+          elif [ "${{ matrix.goos }}" = "windows" ]; then
             cp bin/patient-dispatch-planner.exe \
               "$RUNNER_TEMP/release-assets/patient-dispatch-planner-${{ matrix.asset }}.exe"
+          else
+            cp bin/patient-dispatch-planner \
+              "$RUNNER_TEMP/release-assets/patient-dispatch-planner-${{ matrix.asset }}"
           fi
         shell: bash
         env:
