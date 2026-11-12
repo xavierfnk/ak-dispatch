@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { db, emptySettings } from "./db";
 import { GoogleApiKeySettings } from "./GoogleApiKeySettings";
 import { UpdateSettings } from "./UpdateSettings";
@@ -6,6 +6,8 @@ import { calculateResponseSchema, type CalculateResponse } from "./response";
 import { syntheticDemo } from "./sample";
 import { splitMonth } from "./periods";
 import { movePreservesPEC } from "./pec";
+import { parseBackup } from "./backup";
+import { confirmAction } from "./confirm";
 import { PlannerService } from "../../server/cmd/desktop/frontend/bindings/patient-dispatch-planner/server/cmd/desktop";
 import type { CalculateRequest, Capacity, Cohort, CohortTeamOverride, LocationFields, Member, Patient, RunRecord, Team } from "./types";
 
@@ -256,8 +258,8 @@ function statusLabel(status: string) {
 function statusMessage(status: string) {
   return ({
     optimal: "Voici une proposition de répartition. Vérifiez-la avant de la valider.",
-    feasible: "Une proposition est disponible. Vérifiez-la attentivement avant de la valider.",
-    infeasible: "Aucune répartition ne respecte les capacités et l’équilibre PEC 100 %. Ajustez les données puis réessayez.",
+    feasible: "Une proposition est disponible. Vérifiez-la avant de la valider.",
+    infeasible: "Aucune répartition ne respecte les capacités et l’équilibre PEC 100 %. Modifiez les données et réessayez.",
     needs_review: "Certaines informations doivent être vérifiées avant de proposer une répartition.",
   } as Record<string, string>)[status] ?? "Vérifiez les informations saisies.";
 }
@@ -273,14 +275,22 @@ export default function App() {
   const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState("");
   const [cohortCount, setCohortCount] = useState(1);
+  const [teamSaveError, setTeamSaveError] = useState<{ teamId: string; message: string } | null>(null);
+  const monthHeading = useRef<HTMLHeadingElement>(null);
+  const lastMonth = useRef("");
   const [activeTab, setActiveTab] = useState<"calendar" | "configuration">("calendar");
   const [error, setError] = useState<string | null>(null);
+  const [calculationError, setCalculationError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [patientListOpen, setPatientListOpen] = useState(true);
   const [movePatientId, setMovePatientId] = useState("");
   const [moveTargetTeamId, setMoveTargetTeamId] = useState("");
+  const [scorePatientId, setScorePatientId] = useState("");
   const [googleKeyConfigured, setGoogleKeyConfigured] = useState(false);
+  const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
+  const [importing, setImporting] = useState(false);
+  const importDialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -349,6 +359,14 @@ export default function App() {
     setPatientListOpen(!activeRun);
   }, [selectedCohortId, activeRun?.id]);
 
+  useEffect(() => { setCalculationError(null); }, [selectedCohortId]);
+
+  useEffect(() => {
+    if (activeTab !== "calendar" || selectedCohortId) return;
+    if (selectedMonth) monthHeading.current?.focus();
+    else if (lastMonth.current) document.getElementById(`month-${lastMonth.current}`)?.focus();
+  }, [activeTab, selectedMonth, selectedCohortId]);
+
   useEffect(() => {
     if (staleRun) {
       setMovePatientId("");
@@ -368,7 +386,9 @@ export default function App() {
 
   function saveTeam(next: Team) {
     setTeams((current) => current.map((team) => team.id === next.id ? next : team));
-    void db.teams.put(next).catch(() => setError("La configuration n’a pas pu être enregistrée."));
+    void db.teams.put(next)
+      .then(() => setTeamSaveError((current) => current?.teamId === next.id ? null : current))
+      .catch(() => setTeamSaveError({ teamId: next.id, message: "La modification n’a pas pu être enregistrée. Vérifiez l’espace disponible. Modifiez à nouveau le champ pour réessayer." }));
   }
 
   async function loadDemo() {
@@ -380,6 +400,8 @@ export default function App() {
     });
     setTeams(demo.teams);
     setCohorts([demo.cohort]);
+    setCalendarYear(Number(demo.cohort.expectedDeliveryMonth.slice(0, 4)));
+    setSelectedMonth(demo.cohort.expectedDeliveryMonth);
     setSelectedCohortId(demo.cohort.id);
     setActiveTab("calendar");
     setError(null);
@@ -388,7 +410,8 @@ export default function App() {
 
   async function splitSelectedMonth() {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(selectedMonth) || !Number.isInteger(cohortCount) || cohortCount < 1 || cohortCount > 4) return;
-    if (monthCohorts.length > 0 && !window.confirm(`Remplacer les cohortes de ${monthLabel(selectedMonth)} ? Toutes leurs patientes, configurations et propositions seront définitivement supprimées.`)) return;
+    const patientCount = monthCohorts.reduce((sum, cohort) => sum + cohort.patients.length, 0);
+    if (monthCohorts.length > 0 && !(await confirmAction(`Remplacer les cohortes de ${monthLabel(selectedMonth)} (${monthCohorts.length} ${monthCohorts.length === 1 ? "cohorte" : "cohortes"}, ${patientCount} ${patientCount === 1 ? "patiente" : "patientes"}) ? Les patientes, configurations et propositions enregistrées seront définitivement supprimées.`))) return;
     const oldIds = monthCohorts.map((cohort) => cohort.id);
     const newCohorts: Cohort[] = splitMonth(selectedMonth, cohortCount).map((period, index) => ({
       id: newId(), expectedDeliveryMonth: selectedMonth, expectedDeliveryHalf: (index + 1) as Cohort["expectedDeliveryHalf"],
@@ -406,7 +429,7 @@ export default function App() {
   }
 
   async function deleteCohort() {
-    if (!selectedCohort || !window.confirm(`Supprimer la cohorte du ${cohortPeriodLabel(selectedCohort)} et son historique ?`)) return;
+    if (!selectedCohort || !(await confirmAction(`Supprimer la cohorte du ${cohortPeriodLabel(selectedCohort)} et son historique ?`))) return;
     await db.transaction("rw", db.cohorts, db.runs, async () => {
       await db.cohorts.delete(selectedCohort.id);
       await db.runs.where("cohortId").equals(selectedCohort.id).delete();
@@ -432,7 +455,7 @@ export default function App() {
   }
 
   async function deleteTeam(team: Team) {
-    if (!window.confirm(`Supprimer ${label(team.name)} pour toutes les cohortes ?`)) return;
+    if (!(await confirmAction(`Supprimer ${label(team.name)} pour toutes les cohortes ?`))) return;
     await db.teams.delete(team.id);
     setTeams((current) => current.filter((item) => item.id !== team.id));
   }
@@ -448,8 +471,9 @@ export default function App() {
     saveTeam({ ...team, members: team.members.map((member) => member.id === memberId ? { ...member, ...patch } : member) });
   }
 
-  function removeMember(team: Team, memberId: string) {
-    if (team.members.length < 2) return;
+  async function removeMember(team: Team, memberId: string) {
+    const member = team.members.find((item) => item.id === memberId);
+    if (team.members.length < 2 || !member || !(await confirmAction(`Retirer ${label(member.name)} de ${label(team.name)} pour toutes les cohortes ?`))) return;
     saveTeam({ ...team, members: team.members.filter((member) => member.id !== memberId) });
   }
 
@@ -508,10 +532,10 @@ export default function App() {
   async function calculate() {
     if (!selectedCohort) return;
     if (!googleKeyConfigured) {
-      setError("Ajoutez votre clé Google Maps dans Configuration avant de calculer les trajets.");
+      setCalculationError("Ajoutez votre clé Google Maps dans Configuration avant de calculer les trajets.");
       return;
     }
-    setError(null);
+    setCalculationError(null);
     setNotice(null);
     setRunning(true);
     try {
@@ -603,12 +627,12 @@ export default function App() {
       }
       setRuns((current) => [run, ...current]);
       setActiveRunId(run.id);
-      if (googleResult) setNotice("Proposition temporaire calculée. Vérifiez-la avant de l’utiliser.");
+      if (googleResult) setNotice("La proposition est temporaire. Elle ne sera ni enregistrée ni exportée. Elle disparaîtra à la fermeture de l’application. Vérifiez-la avant de l’utiliser.");
       else if (stored) setNotice("Proposition calculée. Vérifiez-la avant de l’utiliser.");
-      else setError("La proposition a été calculée, mais n’a pas pu être enregistrée.");
+      else setCalculationError("La proposition a été calculée, mais n’a pas pu être enregistrée.");
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "";
-      setError(["Saisissez", "Choisissez", "Vérifiez", "Activez", "La proposition", "Ajoutez"].some((prefix) => message.startsWith(prefix))
+      setCalculationError(["Saisissez", "Choisissez", "Vérifiez", "Activez", "La proposition", "Ajoutez"].some((prefix) => message.startsWith(prefix))
         ? message
         : "Le calcul n’a pas abouti. Réessayez.");
     } finally {
@@ -623,11 +647,11 @@ export default function App() {
     const targetTeam = activeRun.result.teams.find((team) => team.teamId === targetTeamId);
     if (!current || !sourceTeam || !targetTeam || targetTeamId === current.teamId) return;
     if (sourceTeam.assignedCount - 1 < sourceTeam.minPatients || targetTeam.assignedCount + 1 > targetTeam.maxPatients) {
-      setError("Ce déplacement dépasserait la capacité d’une des deux équipes.");
+      setError("Ce déplacement ne respecterait pas la capacité minimale ou maximale d’une des deux équipes.");
       return;
     }
     if (!movePreservesPEC(activeRun, patientId, targetTeamId)) {
-      setError("Ce déplacement déséquilibrerait les patientes éligibles PEC 100 %.");
+      setError("Ce déplacement ne respecterait pas l’équilibre des patientes éligibles PEC 100 %.");
       return;
     }
     const assignments = activeRun.result.assignments.map((assignment) => assignment.patientId === patientId ? { ...assignment, teamId: targetTeamId } : assignment);
@@ -646,7 +670,7 @@ export default function App() {
   }
 
   async function exportData() {
-    if (!window.confirm("Le fichier exporté contient les informations saisies et les propositions. Conservez-le dans un endroit sûr.")) return;
+    if (!(await confirmAction("Le fichier contient les données saisies et les propositions enregistrées. Il ne contient pas les propositions Google temporaires. Celles-ci disparaissent à la fermeture de l’application. Conservez le fichier dans un endroit sûr."))) return;
     const [savedTeams, savedCohorts, savedSettings, savedRuns] = await Promise.all([
       db.teams.toArray(), db.cohorts.toArray(), db.settings.toArray(), db.runs.toArray(),
     ]);
@@ -665,8 +689,47 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
+  async function importData(file: File, mode: "merge" | "replace") {
+    setError(null);
+    setNotice(null);
+    setImporting(true);
+    try {
+      let data: ReturnType<typeof parseBackup>;
+      try {
+        data = parseBackup(await file.text());
+      } catch {
+        setError("Fichier invalide ou incompatible. Aucune donnée n’a été modifiée.");
+        return;
+      }
+      if (mode === "replace" && !(await confirmAction("Remplacer toutes les équipes, cohortes et propositions par les données du fichier ? Les données actuelles seront définitivement supprimées. La clé Google Maps restera dans le trousseau."))) return;
+      await db.transaction("rw", db.teams, db.cohorts, db.settings, db.runs, async () => {
+        if (mode === "replace") {
+          await Promise.all([db.teams.clear(), db.cohorts.clear(), db.settings.clear(), db.runs.clear()]);
+        }
+        for (const [table, records] of [[db.teams, data.teams], [db.cohorts, data.cohorts], [db.settings, data.settings], [db.runs, data.runs]] as const) {
+          for (const record of records) {
+            if (mode === "replace" || !(await table.get(record.id))) await table.add(record as never);
+          }
+        }
+      });
+      const [savedTeams, savedCohorts, savedRuns] = await Promise.all([db.teams.toArray(), db.cohorts.toArray(), db.runs.toArray()]);
+      setTeams(savedTeams);
+      setCohorts(savedCohorts);
+      setRuns((current) => [...savedRuns, ...(mode === "merge" ? current.filter((run) => run.result.routeLookup.provider === "Google Routes API") : [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+      setSelectedCohortId("");
+      setSelectedMonth("");
+      setActiveRunId("");
+      setTeamSaveError(null);
+      setNotice(mode === "merge" ? "Données importées. Les éléments existants ayant le même identifiant ont été conservés." : "Données remplacées par le contenu du fichier.");
+    } catch {
+      setError("L’import n’a pas abouti. Réessayez.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   async function clearAllData() {
-    if (!window.confirm("Supprimer définitivement toutes les équipes, cohortes et propositions ?")) return;
+    if (!(await confirmAction("Supprimer définitivement toutes les équipes, cohortes et propositions ? La clé Google Maps restera dans le trousseau ; supprimez-la séparément dans Configuration."))) return;
     await db.transaction("rw", db.teams, db.cohorts, db.settings, db.runs, async () => {
       await Promise.all([db.teams.clear(), db.cohorts.clear(), db.settings.clear(), db.runs.clear()]);
       await db.settings.put(emptySettings);
@@ -678,7 +741,7 @@ export default function App() {
     setActiveRunId("");
     setActiveTab("calendar");
     setSelectedMonth("");
-    setNotice("Toutes les données ont été supprimées.");
+    setNotice("Les équipes, cohortes et propositions ont été supprimées. La clé Google Maps reste dans le trousseau et peut être supprimée dans Configuration.");
   }
 
   if (!ready) return <main className="loading">Ouverture…</main>;
@@ -687,26 +750,22 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a className="brand" href="#top" aria-label="Accueil — Répartition des patientes">
-          <span className="brand-mark" aria-hidden="true">P</span>
+        <button className="brand" type="button" disabled={importing} aria-label="Accueil — Répartition des patientes" onClick={() => { setActiveTab("calendar"); setSelectedCohortId(""); setSelectedMonth(""); setActiveRunId(""); }}>
+          <span className="brand-mark" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="12" r="2" /><circle cx="19" cy="5" r="2" /><circle cx="19" cy="19" r="2" /><path d="M7 12h3a4 4 0 0 0 4-4V5h3M10 12a4 4 0 0 1 4 4v3h3" /></svg></span>
           <span><strong>Répartition des patientes</strong><small>Organisation des cohortes</small></span>
-        </a>
-        <div className="topbar-actions">
-          <button className="button button-quiet" onClick={() => runStorageAction(exportData)}>Exporter les données</button>
-        </div>
+        </button>
+        <button className={`settings-button ${activeTab === "configuration" ? "is-active" : ""}`} type="button" disabled={importing} aria-label="Configuration" aria-current={activeTab === "configuration" ? "page" : undefined} title="Configuration" onClick={() => setActiveTab("configuration")}>
+          <span aria-hidden="true">⚙</span>
+        </button>
       </header>
 
       <main id="top" className="page">
         {error && <div className="message message-error" role="alert">{error}</div>}
         {notice && <div className="message message-success" role="status">{notice}</div>}
 
-        <nav className="workspace-tabs" role="tablist" aria-label="Navigation principale">
-          <button role="tab" aria-selected={activeTab === "calendar"} className={activeTab === "calendar" ? "is-active" : ""} onClick={() => { setActiveTab("calendar"); setSelectedCohortId(""); setSelectedMonth(""); setActiveRunId(""); }}>Calendrier</button>
-          <button role="tab" aria-selected={activeTab === "configuration"} className={activeTab === "configuration" ? "is-active" : ""} onClick={() => setActiveTab("configuration")}>Configuration</button>
-        </nav>
-
         {activeTab === "calendar" && !selectedCohort && (
           <section className="panel calendar-panel" key={`calendar-${calendarYear}`}>
+            {!selectedMonth ? <>
             <div className="panel-heading panel-heading-wrap">
               <div><span className="eyebrow">COHORTES</span><h1>Calendrier</h1></div>
               <div className="calendar-year">
@@ -723,11 +782,13 @@ export default function App() {
                 return (
                   <button
                     type="button"
+                    id={`month-${monthValue}`}
                     className={`month-card ${monthItems.length ? "has-cohort" : ""} ${selectedMonth === monthValue ? "is-selected" : ""}`}
                     key={monthValue}
                     onClick={() => {
                       setError(null);
                       setSelectedMonth(monthValue);
+                      lastMonth.current = monthValue;
                       setCohortCount(monthItems.length || 1);
                     }}
                   >
@@ -737,14 +798,26 @@ export default function App() {
                 );
               })}
             </div>
+            </> : null}
             {selectedMonth && (
-              <div className="month-detail">
-                <h2>{monthLabel(selectedMonth)}</h2>
+              <div className="month-detail" key={selectedMonth}>
+                <button className="breadcrumb-link" onClick={() => { lastMonth.current = selectedMonth; setSelectedMonth(""); }}>‹ Calendrier {calendarYear}</button>
+                <h1 ref={monthHeading} tabIndex={-1}>{monthLabel(selectedMonth)}</h1>
                 {monthCohorts.map((cohort) => (
                   <button type="button" className="month-card" key={cohort.id} onClick={() => { setSelectedCohortId(cohort.id); setActiveRunId(runs.find((run) => run.cohortId === cohort.id)?.id ?? ""); }}>
                     <strong>{cohortPeriodLabel(cohort)}</strong><span>{cohort.patients.length} patientes</span>
                   </button>
                 ))}
+                {monthCohorts.length > 0 && <details className="split-settings"><summary>Modifier le découpage</summary>
+                  <p className="message message-warning">Ce mois contient {monthCohorts.length} {monthCohorts.length === 1 ? "cohorte" : "cohortes"} et {monthCohorts.reduce((sum, cohort) => sum + cohort.patients.length, 0)} patiente(s). Le remplacement supprimera définitivement les patientes, configurations et propositions enregistrées.</p>
+                  <p className="section-hint">Nouveau découpage : {splitMonth(selectedMonth, cohortCount).map((period) => `${period.start}–${period.end}`).join(" · ")}</p>
+                  <div className="calendar-create">
+                    <label className="field-label">Nombre de cohortes<select value={cohortCount} onChange={(event) => setCohortCount(Number(event.target.value))}>{[1, 2, 3, 4].map((count) => <option value={count} key={count}>{count}</option>)}</select></label>
+                    <button className="button button-secondary" disabled={running} onClick={() => runStorageAction(splitSelectedMonth)}>Remplacer les cohortes</button>
+                  </div>
+                </details>}
+                {monthCohorts.length === 0 && <>
+                <p className="section-hint">Aucune cohorte pour ce mois. Choisissez un découpage pour commencer.</p>
                 <p className="section-hint">Nouveau découpage : {splitMonth(selectedMonth, cohortCount).map((period) => `${period.start}–${period.end}`).join(" · ")}</p>
                 <div className="calendar-create">
                   <label className="field-label">Nombre de cohortes
@@ -752,8 +825,9 @@ export default function App() {
                       {[1, 2, 3, 4].map((count) => <option value={count} key={count}>{count}</option>)}
                     </select>
                   </label>
-                  <button className="button button-primary" disabled={running} onClick={() => runStorageAction(splitSelectedMonth)}>{monthCohorts.length ? "Remplacer les cohortes" : "Créer les cohortes"}</button>
+                  <button className="button button-primary" disabled={running} onClick={() => runStorageAction(splitSelectedMonth)}>Créer les cohortes</button>
                 </div>
+                </>}
               </div>
             )}
             {cohorts.length === 0 && teams.length === 0 && (
@@ -768,16 +842,21 @@ export default function App() {
 
         {activeTab === "configuration" && (
           <div className="main-column" key="configuration">
-            <section className="page-heading">
-              <div><span className="eyebrow">CONFIGURATION GÉNÉRALE</span><h1>Équipes et capacités</h1><p>Ces réglages sont les valeurs par défaut ; chaque cohorte peut les ajuster.</p></div>
-              <button className="button button-secondary" onClick={() => runStorageAction(addTeam)}>＋ Ajouter une équipe</button>
-            </section>
-            <GoogleApiKeySettings configured={googleKeyConfigured} onChange={setGoogleKeyConfigured} />
-            <UpdateSettings />
+            <nav className="cohort-breadcrumb" aria-label="Fil d’Ariane">
+              <button className="breadcrumb-link" type="button" disabled={importing} onClick={() => setActiveTab("calendar")}>‹ Retour au calendrier</button>
+              <span aria-hidden="true">›</span>
+              <span aria-current="page">Configuration</span>
+            </nav>
+            <section className="configuration-section" aria-labelledby="teams-heading">
+            <div className="page-heading">
+              <div><span className="eyebrow">CONFIGURATION GÉNÉRALE</span><h1 id="teams-heading">Équipes et capacités</h1><p>Les modifications sont enregistrées automatiquement. Ces valeurs s’appliquent par défaut à toutes les cohortes. Vous pouvez les modifier pour chaque cohorte.</p></div>
+              <button className="button button-secondary" disabled={importing} onClick={() => runStorageAction(addTeam)}>＋ Ajouter une équipe</button>
+            </div>
             {teams.length === 0 && <div className="inline-notice">Ajoutez les équipes qui prendront en charge les cohortes.</div>}
-            <div className="team-grid">
+            <div className="team-grid" inert={importing}>
               {teams.map((team) => (
                   <article className="team-card" key={team.id}>
+                    {teamSaveError?.teamId === team.id && <div className="message message-error" role="alert">{teamSaveError.message}</div>}
                     <div className="team-card-top">
                       <label className="field-label team-name-field">Nom de l’équipe<input value={team.name} onChange={(event) => saveTeam({ ...team, name: event.target.value })} /></label>
                       <button className="icon-button danger-text" aria-label={`Supprimer ${label(team.name)}`} title="Supprimer l’équipe" onClick={() => runStorageAction(() => deleteTeam(team))}>×</button>
@@ -801,13 +880,54 @@ export default function App() {
                   </article>
               ))}
             </div>
+            </section>
+            <section className="configuration-section technical-settings" aria-labelledby="technical-settings-heading">
+              <div className="panel-heading"><h2 id="technical-settings-heading">Configuration technique</h2></div>
+            <section className="panel">
+              <div className="panel-heading"><h3>Import et export des données</h3></div>
+              <p className="section-hint">Exportez une sauvegarde JSON ou importez un fichier exporté par l’application. La clé Google Maps n’est pas incluse.</p>
+              <div className="api-key-actions">
+                <button className="button button-secondary" disabled={importing || running} onClick={() => runStorageAction(exportData)}>Exporter les données</button>
+                <button className="button button-secondary" disabled={importing || running} onClick={() => importDialog.current?.showModal()}>Importer les données</button>
+              </div>
+              <dialog ref={importDialog} className="import-dialog" aria-labelledby="import-heading" onClose={() => { setImportMode("merge"); importDialog.current?.querySelector("form")?.reset(); }}>
+                <form onSubmit={(event) => {
+                  event.preventDefault();
+                  const file = new FormData(event.currentTarget).get("backup");
+                  if (!(file instanceof File) || !file.name) return;
+                  importDialog.current?.close();
+                  void importData(file, importMode);
+                }}>
+                  <div className="panel-heading"><h3 id="import-heading">Importer les données</h3></div>
+                  <label className="field-label">Fichier JSON
+                    <input type="file" name="backup" accept=".json,application/json" required />
+                  </label>
+                  <label className="field-label">Mode d’import
+                    <select value={importMode} onChange={(event) => setImportMode(event.target.value as "merge" | "replace")}>
+                      <option value="merge">Fusionner avec les données existantes</option>
+                      <option value="replace">Remplacer toutes les données</option>
+                    </select>
+                  </label>
+                  <p className="section-hint">La fusion conserve les éléments existants qui ont le même identifiant que ceux du fichier. Le remplacement supprime toutes les données actuelles avant l’import.</p>
+                  <div className="api-key-actions">
+                    <button className="button button-quiet" type="button" onClick={() => importDialog.current?.close()}>Annuler</button>
+                    <button className="button button-primary" type="submit">Importer</button>
+                  </div>
+                </form>
+              </dialog>
+            </section>
+            <GoogleApiKeySettings configured={googleKeyConfigured} onChange={setGoogleKeyConfigured} />
+            <UpdateSettings />
+            </section>
           </div>
         )}
 
         {activeTab === "calendar" && selectedCohort && (
           <div className="main-column" key={`cohort-${selectedCohort.id}`}>
             <nav className="cohort-breadcrumb" aria-label="Fil d’Ariane">
-              <button className="breadcrumb-link" onClick={() => { setSelectedCohortId(""); setActiveRunId(""); }}>Calendrier</button>
+              <button className="breadcrumb-link" onClick={() => { setSelectedCohortId(""); setSelectedMonth(""); setActiveRunId(""); }}>Calendrier</button>
+              <span aria-hidden="true">›</span>
+              <button className="breadcrumb-link" onClick={() => { setCalendarYear(Number(selectedCohort.expectedDeliveryMonth.slice(0, 4))); setSelectedMonth(selectedCohort.expectedDeliveryMonth); setSelectedCohortId(""); setActiveRunId(""); }}>{monthLabel(selectedCohort.expectedDeliveryMonth)}</button>
               <span aria-hidden="true">›</span>
               <span>{cohortPeriodLabel(selectedCohort)}</span>
             </nav>
@@ -820,7 +940,7 @@ export default function App() {
                 <span><span className="eyebrow">CONFIGURATION DE LA COHORTE</span><strong>Équipes et capacités</strong></span>
                 <span className="muted">{selectedCohortTeams.length} / {teams.length} équipes actives</span>
               </summary>
-              <p className="section-hint">Les modifications ci-dessous ne changent pas les réglages par défaut des autres cohortes.</p>
+              <p className="section-hint">Ces modifications s’appliquent uniquement à cette cohorte. Elles ne changent pas les réglages par défaut.</p>
               {teams.length === 0 ? <p className="empty-team">Ajoutez d’abord des équipes dans Configuration.</p> : (
                 <div className="cohort-team-settings">
                   {teams.map((team) => {
@@ -860,19 +980,19 @@ export default function App() {
               </summary>
               {selectedCohort.patients.length === 0 && <p className="section-hint">Ajoutez les patientes prévues pour cette période.</p>}
               <div className="table-wrap">
-                <table className="patient-table">
+                <table className="patient-table" role="table" aria-label="Patientes">
                   <thead><tr><th scope="col">Nom</th><th scope="col">Parité</th><th scope="col">Éligible PEC 100 %</th><th scope="col">Adresse</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
-                  <tbody>
+                  <tbody role="rowgroup">
                     {selectedCohort.patients.map((patient) => (
-                      <tr key={patient.id}>
-                        <td><label className="sr-only" htmlFor={`patient-name-${patient.id}`}>Nom de la patiente</label><input id={`patient-name-${patient.id}`} value={patient.name} onChange={(event) => updatePatient(patient.id, { name: event.target.value })} /></td>
-                        <td><label className="sr-only" htmlFor={`patient-parity-${patient.id}`}>Parité</label><select id={`patient-parity-${patient.id}`} value={patient.parity} onChange={(event) => updatePatient(patient.id, { parity: event.target.value as Patient["parity"] })}><option value="">Choisir…</option><option value="primiparous">Primipare</option><option value="multiparous">Multipare</option></select></td>
-                        <td><input type="checkbox" aria-label={`Éligible PEC 100 % : ${label(patient.name)}`} checked={Boolean(patient.eligiblePec100)} onChange={(event) => updatePatient(patient.id, { eligiblePec100: event.target.checked })} /></td>
-                        <td className="location-cell"><LocationEditor idPrefix={`patient-location-${patient.id}`} value={patient} onChange={(patch) => updatePatient(patient.id, patch)} /></td>
-                        <td><button className="icon-button" aria-label={`Retirer ${label(patient.name)}`} title="Retirer la patiente" onClick={() => saveCohort({ ...selectedCohort, patients: selectedCohort.patients.filter((item) => item.id !== patient.id) })}>×</button></td>
+                      <tr role="row" key={patient.id}>
+                        <td role="cell" data-label="Nom"><label className="sr-only" htmlFor={`patient-name-${patient.id}`}>Nom de la patiente</label><input id={`patient-name-${patient.id}`} value={patient.name} onChange={(event) => updatePatient(patient.id, { name: event.target.value })} /></td>
+                        <td role="cell" data-label="Parité"><label className="sr-only" htmlFor={`patient-parity-${patient.id}`}>Parité</label><select id={`patient-parity-${patient.id}`} value={patient.parity} onChange={(event) => updatePatient(patient.id, { parity: event.target.value as Patient["parity"] })}><option value="">Choisir…</option><option value="primiparous">Primipare</option><option value="multiparous">Multipare</option></select></td>
+                        <td role="cell" data-label="Éligible PEC 100 %"><input type="checkbox" aria-label={`Éligible PEC 100 % : ${label(patient.name)}`} checked={Boolean(patient.eligiblePec100)} onChange={(event) => updatePatient(patient.id, { eligiblePec100: event.target.checked })} /></td>
+                        <td role="cell" data-label="Adresse" className="location-cell"><LocationEditor idPrefix={`patient-location-${patient.id}`} value={patient} onChange={(patch) => updatePatient(patient.id, patch)} /></td>
+                        <td role="cell"><button className="icon-button" aria-label={`Retirer ${label(patient.name)}`} title="Retirer la patiente" onClick={async () => { if (await confirmAction(`Retirer ${label(patient.name)} de cette cohorte ?`)) saveCohort({ ...selectedCohort, patients: selectedCohort.patients.filter((item) => item.id !== patient.id) }); }}>×</button></td>
                       </tr>
                     ))}
-                    {selectedCohort.patients.length === 0 && <tr><td className="empty-cell" colSpan={5}>Aucune patiente pour le moment.</td></tr>}
+                    {selectedCohort.patients.length === 0 && <tr role="row"><td role="cell" className="empty-cell" colSpan={5}>Aucune patiente pour le moment.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -974,9 +1094,10 @@ export default function App() {
                                         </div>
                                       </dl>
                                     </details>
-                                    {explanation && <button type="button" className="score-info" title={scoreDescription} aria-label={scoreDescription}>i</button>}
+                                    {explanation && <button type="button" className="score-info" aria-label={`Score de correspondance : ${activeRun.patientNames[assignment.patientId] ?? "Patiente"}`} aria-expanded={scorePatientId === assignment.patientId} aria-controls={`score-${assignment.patientId}`} onClick={() => setScorePatientId((current) => current === assignment.patientId ? "" : assignment.patientId)}>i</button>}
                                     {activeRun.result.teams.length > 1 && <button type="button" className="button button-small move-patient-button" disabled={staleRun} onClick={() => { setMovePatientId((current) => current === assignment.patientId ? "" : assignment.patientId); setMoveTargetTeamId(""); }}>Changer d’équipe</button>}
                                   </div>
+                                  {explanation && <p id={`score-${assignment.patientId}`} className="score-description" hidden={scorePatientId !== assignment.patientId}>{scoreDescription}</p>}
                                   {movePatientId === assignment.patientId && (
                                     <div className="move-patient-editor">
                                       <label className="field-label">Équipe de destination
@@ -990,7 +1111,7 @@ export default function App() {
                                       </label>
                                       {moveTargetTeamId && (
                                         <div className="move-patient-preview">
-                                          {!targetAllowed ? <p>Le déplacement dépasserait la capacité minimale ou maximale d’une des deux équipes.</p> : targetPreview ? (
+                                          {!targetAllowed ? <p>Le déplacement ne respecterait pas les capacités ou l’équilibre PEC 100 %.</p> : targetPreview ? (
                                             <>
                                               <p><strong>Temps moyen estimé : {minutes(targetPreview.meanSeconds)}</strong></p>
                                               <ul>{targetPreview.memberSeconds.map((member) => <li key={member.memberId}>{activeRun.memberNames[member.memberId] ?? "Sage-femme"} : {minutes(member.seconds)}{member.travelMode ? ` · ${travelModeLabel(member.travelMode)}` : ""}</li>)}</ul>
@@ -1016,12 +1137,13 @@ export default function App() {
               </section>
             )}
             {!googleKeyConfigured && <p className="inline-notice">Ajoutez une clé Google Maps dans Configuration pour préparer une proposition.</p>}
+            {calculationError && <div className="message message-error" role="alert">{calculationError}</div>}
             <div className="run-bar">
               <div>
-                <strong>{activeRun ? "Une erreur dans la liste ?" : "Vérifiez la liste avant de générer"}</strong>
-                <span>{activeRun ? "Modifiez les patientes puis régénérez la proposition. Les temps de trajet sont indicatifs." : "La proposition devra être validée par la coordinatrice."}</span>
+                <strong>{activeRun ? "Les données ont changé ?" : "Vérifiez la liste avant le calcul"}</strong>
+                <span>{activeRun ? "Si nécessaire, modifiez les données et préparez une nouvelle proposition. Les temps de trajet sont indicatifs." : "La proposition devra être validée par la coordinatrice."}</span>
               </div>
-              <button className="button button-primary run-button" disabled={running || !googleKeyConfigured} onClick={() => void calculate()}>{running ? "Calcul en cours…" : activeRun ? "Régénérer la proposition" : "Préparer une proposition"}<span aria-hidden="true">→</span></button>
+              <button className="button button-primary run-button" disabled={running || !googleKeyConfigured} onClick={() => void calculate()}>{running ? "Calcul en cours…" : activeRun ? "Préparer une nouvelle proposition" : "Préparer une proposition"}<span aria-hidden="true">→</span></button>
             </div>
           </div>
         )}

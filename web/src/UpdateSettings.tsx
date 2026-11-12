@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { PlannerService } from "../../server/cmd/desktop/frontend/bindings/patient-dispatch-planner/server/cmd/desktop";
+import { confirmAction } from "./confirm";
 
 type UpdateStatus = Awaited<ReturnType<typeof PlannerService.CheckForUpdate>>;
 
@@ -18,14 +19,14 @@ export function UpdateSettings() {
         ? `La version ${result.LatestVersion} est disponible.`
         : `L’application est à jour (${result.CurrentVersion}).`);
     } catch {
-      setMessage("La recherche de mise à jour est indisponible. Vérifiez votre connexion et qu’une version stable est publiée.");
+      setMessage("La recherche de mise à jour a échoué. Vérifiez votre connexion. Vérifiez aussi qu’une version stable est publiée.");
     } finally {
       setBusy(false);
     }
   }
 
   async function install() {
-    if (!window.confirm(`Installer la version ${status?.LatestVersion} et redémarrer l’application ?`)) return;
+    if (!(await confirmAction(`Installer la version ${status?.LatestVersion} et redémarrer l’application ?`))) return;
     setBusy(true);
     setMessage("Téléchargement et vérification de la mise à jour…");
     try {
@@ -40,9 +41,9 @@ export function UpdateSettings() {
   return (
     <section className="panel api-key-panel" aria-labelledby="updates-heading">
       <div className="panel-heading">
-        <div><span className="eyebrow">APPLICATION</span><h2 id="updates-heading">Mises à jour</h2></div>
+        <div><span className="eyebrow">APPLICATION</span><h3 id="updates-heading">Mises à jour</h3></div>
       </div>
-      <p className="section-hint">La vérification contacte GitHub uniquement lorsque vous la lancez. Aucune donnée de patient, d’équipe ou de planification n’est envoyée.</p>
+      <p className="section-hint">L’application contacte GitHub uniquement lorsque vous recherchez une mise à jour. Elle n’envoie aucune donnée de patiente, d’équipe ou de planification.</p>
       <div className="api-key-actions">
         <button className="button button-secondary" type="button" disabled={busy} onClick={() => void check()}>
           {busy && !status?.Available ? "Vérification…" : "Rechercher une mise à jour"}
