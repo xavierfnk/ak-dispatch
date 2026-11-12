@@ -26,4 +26,6 @@ jobs:
         working-directory: server/cmd/desktop
       - run: go test ./...
         working-directory: server
+      - run: go test ./cmd/desktop -run 'TestLinux' -v
+        working-directory: server
       - run: file server/cmd/desktop/bin/patient-dispatch-planner
