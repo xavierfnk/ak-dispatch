@@ -2,22 +2,31 @@
 
 [English](../README.md) | **Français**
 
-**Patient Dispatch Planner** est une application de bureau locale destinée à aider les coordinatrices de maternité à préparer des propositions de répartition des patientes entre des équipes de sages-femmes. Chaque mois prévu d’accouchement peut être divisé en une à quatre cohortes. Toute proposition reste à vérifier par une personne : l’application ne décide pas de l’affectation finale.
+**Patient Dispatch Planner** est une application de bureau locale. Elle aide les coordinatrices de maternité à préparer des propositions de répartition des patientes entre les équipes de sages-femmes. Vous pouvez diviser chaque mois prévu d’accouchement en une à quatre cohortes. Une personne doit vérifier chaque proposition. L’application ne décide pas de l’affectation finale.
 
 ## Fonctionnement
 
 - Configurez les équipes, leurs membres et lieux, ainsi que les capacités minimale et maximale de chaque équipe.
-- Divisez un mois en cohortes et saisissez les lieux, la parité et l’éligibilité PEC 100 % des patientes. Remplacer un découpage existant supprime les cohortes et leur historique après confirmation.
-- Lorsqu’une coordinatrice lance explicitement un calcul, l’application transmet les lieux des patientes et des membres d’équipe à l’API Google Routes afin de comparer les trajets à vélo et en transports en commun. Les noms, la parité, les capacités et les affectations ne sont pas transmis à Google.
-- Le service Go local répartit les patientes éligibles PEC 100 % équitablement entre les équipes actives (écart maximal d’une patiente), respecte les capacités et prend en compte les trajets et la parité. Les changements manuels respectent également ces contraintes.
+- Divisez un mois en cohortes. Saisissez les lieux, la parité et l’éligibilité PEC 100 % des patientes. Si vous confirmez le remplacement d’un découpage, l’application supprime les cohortes existantes et leur historique.
+- Lorsque vous lancez un calcul, l’application transmet les lieux des patientes et des membres d’équipe à l’API Google Routes. Elle compare les temps de trajet à vélo et en transports en commun. Elle ne transmet pas les noms, la parité, les capacités ou les affectations à Google.
+- Le service Go local répartit les patientes éligibles PEC 100 % entre les équipes actives. L’écart entre les équipes est au maximum d’une patiente. Il respecte les capacités et prend en compte les trajets et la parité. Les changements manuels respectent aussi ces contraintes.
 
-L’interface React/TypeScript communique directement avec le service Go par Wails. Les équipes, cohortes et données de formulaire sont conservées dans IndexedDB du WebView de l’application. Les clés API Google sont enregistrées dans le trousseau du système d’exploitation. Les résultats Google sont conservés en mémoire et ne sont pas enregistrés dans la base locale.
+L’interface React/TypeScript communique directement avec le service Go par Wails. L’application conserve les équipes, les cohortes et les données saisies dans IndexedDB du WebView. Le trousseau du système d’exploitation conserve les clés API Google. L’application conserve les résultats Google en mémoire, mais pas dans la base locale.
 
-L’application publiée n’a ni serveur applicatif distant, ni base de données cloud, ni analytique ni télémétrie. Une recherche de mise à jour GitHub est effectuée uniquement sur action explicite dans **Configuration → Mises à jour** ; elle n’envoie aucune donnée métier. L’appel à Google est une autre exception au traitement local : Google reçoit les lieux transmis ainsi que les métadonnées de requête, selon les conditions applicables au projet associé à la clé. Le stockage local n’est pas chiffré par l’application.
-
-Pour permettre la mise à jour intégrée, placez l’exécutable Windows dans `%LOCALAPPDATA%\Programs\Patient Dispatch Planner\patient-dispatch-planner.exe` ou l’application macOS dans `~/Applications/patient-dispatch-planner.app`. Les mises à jour remplacent ces fichiers dans leur emplacement actuel, après vérification de l’empreinte SHA-256 et de la signature Ed25519, et nécessitent un dossier accessible en écriture par l’utilisateur.
+L’application publiée n’a ni serveur applicatif distant, ni base de données cloud, ni outil d’analyse ou de télémétrie. Elle contacte GitHub uniquement lorsque vous recherchez une mise à jour dans **Configuration → Mises à jour**. Elle n’envoie alors aucune donnée métier. Le calcul des trajets est une autre exception au traitement local. Google reçoit les lieux et les métadonnées de la requête selon les conditions du projet associé à la clé. L’application ne chiffre pas le stockage local.
 
 **Utilisez des données fictives jusqu’à validation par les responsables de la protection des données et les équipes juridiques de votre organisation, ainsi qu’à vérification des conditions Google Maps Platform.** Voir la [documentation sur le traitement des données](traitement-des-donnees.md).
+
+## Installation
+
+Téléchargez la dernière version depuis les [versions publiées sur GitHub](https://github.com/xavierfnk/ak-dispatch/releases/latest). N’ouvrez le fichier que si vous faites confiance à sa source et souhaitez installer l’application.
+
+- **Windows :** téléchargez `patient-dispatch-planner-windows-x64.exe`. Créez le dossier `%LOCALAPPDATA%\Programs\Patient Dispatch Planner`, déplacez-y le fichier, renommez-le `patient-dispatch-planner.exe`, puis ouvrez-le. Si SmartScreen indique que l’application est inconnue, sélectionnez **Informations complémentaires → Exécuter quand même** si vous faites confiance au fichier.
+- **macOS :** téléchargez le ZIP `macos-arm64` pour une puce Apple ou `macos-x64` pour un processeur Intel. Décompressez-le et déplacez `patient-dispatch-planner.app` dans `~/Applications` (créez ce dossier si nécessaire), puis ouvrez l’application. Si macOS la bloque, ouvrez **Réglages Système → Confidentialité et sécurité**, sélectionnez **Ouvrir quand même**, puis confirmez. Consultez les [instructions d’Apple](https://support.apple.com/fr-fr/102445).
+
+L’exécutable Windows n’est pas signé. L’application macOS n’est ni signée avec un Developer ID ni notariée. Ces avertissements sont donc attendus. Sur un appareil géré, le contournement peut être interdit. Contactez votre administrateur plutôt que de désactiver les protections de sécurité. L’application peut installer les mises à jour dans ces emplacements si votre compte peut écrire dans le dossier.
+
+Pour rechercher une mise à jour, ouvrez **Configuration → Mises à jour**, puis choisissez **Installer et redémarrer**. L’application vérifie l’empreinte SHA-256 et la signature Ed25519 du fichier téléchargé avant de se remplacer.
 
 ## Développement
 

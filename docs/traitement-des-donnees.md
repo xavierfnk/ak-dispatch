@@ -6,7 +6,7 @@
 
 ## En bref
 
-L’application est conçue pour fonctionner localement : elle ne dispose pas de serveur applicatif ni de base cloud. Les données saisies et les résultats conservés localement restent dans le profil IndexedDB du WebView. Toutefois, une adresse précise peut identifier une personne et, dans un contexte de soins maternité, peut révéler ou permettre d’inférer des informations de santé. Lors d’un calcul explicitement demandé, les lieux des patientes et des membres d’équipe sont transmis à Google Routes. L’absence de nom ou d’identifiant dans cette requête ne rend pas automatiquement ces lieux anonymes.
+L’application est conçue pour fonctionner localement. Elle ne dispose ni de serveur applicatif ni de base cloud. Les données saisies et les résultats conservés localement restent dans le profil IndexedDB du WebView. Une adresse précise peut identifier une personne. Dans un contexte de soins de maternité, elle peut aussi révéler ou permettre de déduire des informations de santé. Lorsque vous lancez un calcul, l’application transmet les lieux des patientes et des membres d’équipe à Google Routes. La requête ne contient ni nom ni identifiant, mais cela ne rend pas automatiquement ces lieux anonymes.
 
 **N’utilisez que des données fictives tant que le DPO et les conseils juridiques n’ont pas validé le traitement, le déploiement et les conditions Google applicables.** L’architecture locale ne vaut pas autorisation juridique ou contractuelle.
 
@@ -21,7 +21,9 @@ L’application est conçue pour fonctionner localement : elle ne dispose pas de
 | Vérification et téléchargement d’une mise à jour | Sur action explicite de l’utilisateur, le service Go contacte l’API GitHub Releases et télécharge l’artefact de l’application correspondant au système et à l’architecture. GitHub reçoit les métadonnées ordinaires de la requête réseau (notamment l’adresse IP) ; aucune donnée de patiente, d’équipe ou de planification n’est incluse. |
 | Résultats de calcul Google | Reçus par le service Go local et affichés dans l’interface ; gardés en mémoire de l’application et non enregistrés dans IndexedDB ni dans l’export. Ils disparaissent à la fermeture de l’application. |
 
-L’export JSON peut contenir des noms, des adresses, de la parité, l’éligibilité PEC 100 % et des données d’historique locales. Il doit être protégé comme un fichier potentiellement sensible. **Tout supprimer** efface les données des magasins locaux de l’application ; la suppression de la clé API est une action distincte. Ces actions ne suppriment pas les fichiers exportés ni les données éventuellement traitées par Google.
+L’export JSON peut contenir des noms, des adresses, la parité, l’éligibilité PEC 100 % et l’historique local. Protégez ce fichier comme un fichier potentiellement sensible. **Tout supprimer** efface les données des magasins locaux de l’application. Pour supprimer la clé API, utilisez l’action distincte dans Configuration. Ces actions ne suppriment pas les fichiers exportés ni les données éventuellement traitées par Google.
+
+Dans Configuration, vous pouvez importer un export JSON de l’application sur l’appareil. La fusion conserve les éléments locaux dont l’identifiant existe aussi dans le fichier. Le remplacement supprime les données locales avant d’importer celles du fichier. La clé Google Maps reste dans le trousseau et ne change pas. Vous ne pouvez pas importer les résultats Google temporaires.
 
 Le stockage Web local n’est pas chiffré par l’application. Sécurisez les comptes de l’appareil, utilisez le chiffrement complet du disque lorsqu’il est disponible et protégez les sauvegardes et exports.
 
@@ -33,13 +35,13 @@ Le stockage Web local n’est pas chiffré par l’application. Sécurisez les c
 4. Les noms, jetons, identifiants de fiches, parité, capacités, critères d’éligibilité et résultats d’affectation ne sont pas inclus dans la requête de routage. Google reçoit néanmoins les lieux et des métadonnées de requête ; l’omission de ces autres champs ne prouve pas que les lieux soient anonymes.
 5. Go combine les temps de trajet disponibles avec les contraintes locales pour produire une proposition. Les calculs Google sont affichés en mémoire et ne sont pas enregistrés dans l’historique persistant.
 
-Une adresse ou une coordonnée n’est pas nécessairement une donnée de santé par nature. Dans ce contexte, elle est reliée localement à une patiente suivie pour des soins de maternité ; il est prudent de traiter le lieu comme une donnée personnelle et potentiellement comme une donnée concernant la santé. L’envoi à un prestataire est un traitement même en l’absence de conservation par l’application.
+Une adresse ou une coordonnée n’est pas nécessairement une donnée de santé par nature. Ici, l’application la relie localement à une patiente suivie pour des soins de maternité. Il est prudent de traiter le lieu comme une donnée personnelle et potentiellement comme une donnée de santé. L’envoi à un prestataire est un traitement, même si l’application ne conserve pas le résultat.
 
 ## Points juridiques à valider
 
 ### RGPD et secret professionnel
 
-Le RGPD définit les données personnelles comme des informations se rapportant à une personne identifiée ou identifiable, et le traitement inclut la communication par transmission (articles 4(1) et 4(2), considérant 26). Une adresse postale peut être un identifiant indirect ; dans ce contexte, l’adresse est reliée à une patiente et peut permettre de singulariser son foyer. Le fait d’omettre les noms et identifiants réduit les informations divulguées mais ne démontre pas l’anonymisation.
+Le RGPD définit les données personnelles comme des informations relatives à une personne identifiée ou identifiable. Le traitement inclut la communication par transmission (articles 4(1) et 4(2), considérant 26). Une adresse postale peut être un identifiant indirect. Ici, l’adresse est reliée à une patiente et peut permettre de distinguer son foyer. Omettre les noms et les identifiants réduit les informations divulguées. Cela ne démontre pas que les données sont anonymes.
 
 Les données relatives aux soins peuvent relever des catégories particulières de données de santé (article 4(15), considérant 35). Il faut déterminer au cas par cas si les lieux transmis, dans leur contexte, relèvent de cette catégorie.
 
@@ -49,19 +51,19 @@ L’article L.1110-4 du Code de la santé publique encadre le secret professionn
 
 ### Hébergement de données de santé (HDS)
 
-L’article L.1111-8 du Code de la santé publique prévoit une certification pour l’hébergement de données de santé entrant dans son champ. L’exception réglementaire de l’article R.1111-8-8 vise certaines opérations ponctuelles, notamment saisie, mise en forme ou matérialisation/dématérialisation ; le calcul d’itinéraires n’y est pas expressément mentionné. Les indications de l’ANS couvrent notamment des plateformes d’hébergement d’applications et l’exploitation de systèmes d’information de santé.
+L’article L.1111-8 du Code de la santé publique prévoit une certification pour l’hébergement de données de santé entrant dans son champ. L’exception de l’article R.1111-8-8 vise certaines opérations ponctuelles. Elle comprend notamment la saisie, la mise en forme et la matérialisation ou dématérialisation. Elle ne mentionne pas expressément le calcul d’itinéraires. Les indications de l’ANS couvrent notamment les plateformes d’hébergement d’applications et l’exploitation de systèmes d’information de santé.
 
-Le fait que le service Go ne conserve pas une base de données ne constitue pas une exemption générale clairement établie : le traitement transitoire et l’infrastructure utilisée doivent faire l’objet d’une analyse factuelle. Il faut vérifier le périmètre de certification des fournisseurs et services concernés ; une certification Google Cloud distincte ne permet pas de présumer que Google Maps Platform est couvert.
+Le service Go ne conserve pas de base de données. Cela ne constitue pas une exemption générale clairement établie. Une analyse factuelle doit examiner le traitement transitoire et l’infrastructure utilisée. Il faut vérifier le périmètre de certification des fournisseurs et des services concernés. Une certification Google Cloud distincte ne permet pas de présumer que Google Maps Platform est couvert.
 
 ### Conditions Google Maps Platform
 
-Les conditions applicables dépendent du compte de facturation, de la région et de l’historique de l’intégration. Pour un compte de facturation EEE, les nouvelles intégrations ou celles modifiées de manière significative relèvent généralement des conditions EEE depuis le 8 juillet 2025 ; certaines intégrations antérieures non modifiées peuvent rester sous les conditions standard. Vérifiez le projet, son historique, le revendeur éventuel et tout contrat négocié.
+Les conditions applicables dépendent du compte de facturation, de la région et de l’historique de l’intégration. Pour un compte de facturation EEE, les conditions EEE s’appliquent généralement depuis le 8 juillet 2025 aux nouvelles intégrations et à celles modifiées de manière significative. Certaines intégrations antérieures non modifiées peuvent rester sous les conditions standard. Vérifiez le projet, son historique, le revendeur éventuel et tout contrat négocié.
 
 Les restrictions contractuelles Google sont distinctes de la conformité au RGPD : une base juridique n’écarte pas les conditions d’utilisation, et l’autorisation contractuelle ne démontre pas à elle seule la conformité juridique. Les conditions standard (§ 4.4(c)(ii)) interdisent de fournir des données personnelles d’utilisateur final ainsi que les données personnelles d’un utilisateur final européen ; les conditions EEE (§ 4.2) interdisent de fournir des données personnelles d’utilisateur final. Les clauses de localisation (standard § 4.4(c)(iii), EEE § 4.3) prévoient une information préalable et, pour la localisation d’un utilisateur final, un consentement « exprès, préalable et révocable ». L’application étant destinée au personnel, il faut faire confirmer si une patiente est considérée comme un « utilisateur final » au sens du contrat et quelles obligations s’appliquent. Les restrictions HIPAA mentionnées dans ces conditions concernent les données soumises à la loi américaine HIPAA ; elles ne constituent pas une interdiction générale de toute donnée de santé européenne.
 
 Les requêtes de matrice Routes transmettent les lieux d’origine et de destination à Google pour le calcul des durées et distances. Google peut traiter des données de requête comme les adresses, coordonnées et métadonnées techniques selon ses conditions, rôles contractuels, politiques de conservation et règles de transfert applicables. Le fait que les résultats ne soient pas enregistrés par l’application ne contrôle pas le traitement effectué par Google.
 
-Les conditions Maps limitent également la mise en cache du contenu Google. Les conditions Routes permettent, sous réserve des conditions applicables, la conservation temporaire de latitude/longitude jusqu’à 30 jours consécutifs, mais n’autorisent pas nécessairement la conservation des durées de matrice. L’application ne persiste pas les résultats Google ; toute évolution de ce comportement doit être vérifiée au regard des conditions applicables.
+Les conditions Maps limitent aussi la mise en cache du contenu Google. Sous réserve des conditions applicables, les conditions Routes permettent de conserver temporairement des latitudes et longitudes jusqu’à 30 jours consécutifs. Elles n’autorisent pas nécessairement la conservation des durées de matrice. L’application n’enregistre pas les résultats Google de façon permanente. Vérifiez tout changement de ce comportement au regard des conditions applicables.
 
 ## Vérifications avant un usage réel
 

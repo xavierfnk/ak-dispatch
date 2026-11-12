@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { PlannerService } from "../../server/cmd/desktop/frontend/bindings/patient-dispatch-planner/server/cmd/desktop";
+import { confirmAction } from "./confirm";
 
 interface GoogleApiKeySettingsProps {
   configured: boolean;
@@ -28,7 +29,7 @@ export function GoogleApiKeySettings({ configured, onChange }: GoogleApiKeySetti
   }
 
   async function remove() {
-    if (!window.confirm("Supprimer la clé Google Maps enregistrée sur cet appareil ?")) return;
+    if (!(await confirmAction("Supprimer la clé Google Maps enregistrée sur cet appareil ?"))) return;
     setBusy(true);
     setMessage("");
     try {
@@ -45,10 +46,10 @@ export function GoogleApiKeySettings({ configured, onChange }: GoogleApiKeySetti
   return (
     <section className="panel api-key-panel" aria-labelledby="google-api-key-heading">
       <div className="panel-heading">
-        <div><span className="eyebrow">CALCUL DES TRAJETS</span><h2 id="google-api-key-heading">Clé Google Maps</h2></div>
+        <div><span className="eyebrow">CALCUL DES TRAJETS</span><h3 id="google-api-key-heading">Clé Google Maps</h3></div>
         <span className={`status-pill ${configured ? "status-optimal" : "status-needs_review"}`}>{configured ? "Configurée" : "À configurer"}</span>
       </div>
-      <p className="section-hint">Chaque utilisateur fournit sa propre clé avec l’API Routes activée. Les adresses sont envoyées à Google uniquement lors du calcul des trajets.</p>
+      <p className="section-hint">Chaque utilisateur fournit sa propre clé et active l’API Routes. L’application envoie les lieux à Google uniquement lors du calcul des trajets.</p>
       <form className="api-key-form" onSubmit={(event) => void save(event)}>
         <label className="field-label" htmlFor="google-api-key">Clé API personnelle
           <input
@@ -67,7 +68,7 @@ export function GoogleApiKeySettings({ configured, onChange }: GoogleApiKeySetti
         </div>
       </form>
       {message && <p className="section-hint" role="status">{message}</p>}
-      <p className="section-hint">La clé est conservée dans le trousseau de mots de passe du système, jamais dans les données exportées.</p>
+      <p className="section-hint">La clé est conservée dans le trousseau de mots de passe de l’appareil. Elle n’est pas incluse dans les exports.</p>
     </section>
   );
 }

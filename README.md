@@ -2,21 +2,30 @@
 
 **English** | [Français](docs/README.fr.md)
 
-Patient Dispatch Planner is a local-first Windows/macOS desktop tool for helping maternity-care coordinators prepare draft assignments of patients to midwife teams. Each expected delivery month can be divided into one to four cohorts. The result is a recommendation for a coordinator to review—not an automatic or final assignment.
+Patient Dispatch Planner is a local-first desktop app for Windows and macOS. It helps maternity-care coordinators prepare draft patient assignments to midwife teams. A coordinator can divide each expected delivery month into one to four cohorts. A coordinator must review the recommendation. The app does not make a final assignment.
 
-The app is built with Go, React, TypeScript, and Wails. The React interface runs in the desktop WebView, while a local Go service validates inputs, requests route times when asked, and runs the assignment optimizer on the device.
+The app uses Go, React, TypeScript, and Wails. The React interface runs in the desktop WebView. A local Go service validates inputs, requests route times on demand, and runs the assignment optimizer on the device.
 
 ## How it works
 
 - Configure midwife teams, their members and locations, and minimum/maximum cohort capacities.
-- Split a delivery month into cohorts, then enter patient locations, parity and PEC 100% eligibility. Replacing an existing split deletes its cohorts and history after confirmation.
-- When a coordinator explicitly starts a calculation, the app sends the team-member and patient locations to Google Routes API to compare bicycle and transit travel times. Names, parity, capacities, and assignment data are not sent to Google.
-- The Go optimizer balances PEC 100% eligible patients across active teams (counts differ by at most one), while respecting capacities and considering route times and parity. Coordinators can review the explanation and make manual changes that preserve these constraints.
-- Team and cohort records are stored in the desktop WebView’s local IndexedDB. They can be exported as JSON or deleted in the app. Google API keys are stored in the operating system’s credential store.
+- Split a delivery month into cohorts. Enter patient locations, parity, and PEC 100% eligibility. If you confirm a replacement split, the app deletes the existing cohorts and their history.
+- When a coordinator starts a calculation, the app sends team-member and patient locations to Google Routes API. It compares bicycle and transit travel times. It does not send names, parity, capacities, or assignment data to Google.
+- The Go optimizer distributes PEC 100% eligible patients across active teams. Their counts differ by at most one. The optimizer respects capacities and considers travel times and parity. Coordinators can review the explanation and make manual changes that preserve these constraints.
+- The app stores team and cohort records in the desktop WebView’s local IndexedDB. You can export them as JSON or delete them in the app. The operating system’s credential store holds Google API keys.
 
-The release app has no remote application server, cloud database, analytics, or telemetry. Route calculation is the exception to local-only processing: Google receives the submitted locations and request metadata and handles them under the terms for the API key’s project. Route results for real Google calculations are held in app memory and are not saved in the local database. Local browser storage is not application-level encryption.
+The release app has no remote application server, cloud database, analytics, or telemetry. Route calculation is an exception to local processing. Google receives the locations and request metadata under the terms for the API key’s project. The app keeps Google route results in memory, not in the local database. The app does not encrypt local browser storage.
 
 **Use synthetic records until your organization’s privacy/legal review and Google Maps Platform terms review approve real-data use.** See the [French data-processing and privacy notes](docs/traitement-des-donnees.md).
+
+## Installation
+
+Download the latest version from [GitHub Releases](https://github.com/xavierfnk/ak-dispatch/releases/latest). Only open a file if you trust its source and expect to install it.
+
+- **Windows:** Download `patient-dispatch-planner-windows-x64.exe`. Create `%LOCALAPPDATA%\Programs\Patient Dispatch Planner`, move the file there, rename it `patient-dispatch-planner.exe`, and open it. If SmartScreen warns that the app is unrecognized, select **More info → Run anyway** if you trust the file.
+- **macOS:** Download the `macos-arm64` ZIP for Apple silicon or `macos-x64` ZIP for Intel. Unzip it and move `patient-dispatch-planner.app` to `~/Applications` (create the folder if needed), then open it. If macOS blocks the app, open **System Settings → Privacy & Security**, select **Open Anyway**, and confirm. See [Apple's instructions](https://support.apple.com/en-us/102445).
+
+The Windows executable is unsigned. The macOS app is not Developer ID signed or notarized. These warnings are expected. Managed devices may not allow an override. Contact your administrator rather than disabling security protections. The app can install updates in these locations if your user account can write to the folder.
 
 ## Development
 
@@ -39,12 +48,12 @@ For individual Go checks, run `cd server && go test ./... && go vet ./...`. For 
 
 ## Google Routes API key
 
-Each user supplies their own Google Maps Platform API key in **Configuration**. Enable Routes API, restrict the key to that API, and set project quotas and billing alerts. The key is stored in the operating system’s credential store; it is not stored in IndexedDB or included in exports. Do not put a personal API key in source code or a public desktop binary.
+Each user supplies their own Google Maps Platform API key in **Configuration**. Enable Routes API and restrict the key to that API. Set project quotas and billing alerts. The operating system’s credential store holds the key. The app does not store it in IndexedDB or include it in exports. Do not put a personal API key in source code or a public desktop binary.
 
 ## Releases
 
 Pushing a version tag such as `v0.1.0` runs the GitHub Actions release workflow for Windows x64 and macOS arm64/x64. macOS assets are zipped `.app` bundles; Windows is a `.exe`. macOS bundles are not Developer-ID signed or notarized, so operating-system warnings may appear when opening them.
 
-For in-app updates, install the Windows executable at `%LOCALAPPDATA%\Programs\Patient Dispatch Planner\patient-dispatch-planner.exe` (rename the downloaded release asset to `patient-dispatch-planner.exe`) or place the unzipped macOS app at `~/Applications/patient-dispatch-planner.app`. In **Configuration → Mises à jour**, check for updates and choose **Installer et redémarrer**. Updates are downloaded from this repository's GitHub Releases; the app checks GitHub's SHA-256 asset digest and verifies a detached Ed25519 signature before replacing itself. The app folder must be writable by the current user.
+To update the app, open **Configuration → Mises à jour** and check for updates. Choose **Installer et redémarrer**. The app downloads updates from this repository's GitHub Releases. It checks GitHub's SHA-256 asset digest and verifies a detached Ed25519 signature before replacing itself.
 
 Before publishing releases, configure the updater signing keys in GitHub Actions: generate an Ed25519 key with `openssl genpkey -algorithm Ed25519 -out update-private.pem`; set the `UPDATE_SIGNING_PRIVATE_KEY` Actions secret to that PEM file, and set the `UPDATE_SIGNING_PUBLIC_KEY` repository variable to `$(openssl pkey -in update-private.pem -pubout -outform DER | tail -c 32 | base64 | tr -d '\n')`. Keep the private key out of the repository. Each release asset is signed, and the app verifies that signature before replacing itself.
