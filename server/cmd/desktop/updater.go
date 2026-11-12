@@ -31,10 +31,13 @@ var appVersion = "v0.1.0"
 // shortcut: one pinned release key; rotate it by shipping a transition build that trusts both keys.
 var updatePublicKey = ""
 
+var errUpdateAssetPending = errors.New("release asset is not yet available")
+
 type UpdateStatus struct {
 	CurrentVersion string
 	LatestVersion  string
 	Available      bool
+	Pending        bool
 	Installed      bool
 	InstallPath    string
 }
@@ -73,15 +76,25 @@ func (s *PlannerService) CheckForUpdate() (UpdateStatus, error) {
 		if _, err := parseUpdatePublicKey(updatePublicKey); err != nil {
 			return UpdateStatus{}, errors.New("This build has no release verification key and cannot install updates.")
 		}
-		asset, err := releaseAsset(release, runtime.GOOS, runtime.GOARCH)
+		pending, err := updatePending(release, runtime.GOOS, runtime.GOARCH)
 		if err != nil {
 			return UpdateStatus{}, err
 		}
-		if _, err := releaseSignatureAsset(release, asset); err != nil {
-			return UpdateStatus{}, err
-		}
+		status.Pending = pending
+		status.Available = !pending
 	}
 	return status, nil
+}
+
+func updatePending(release githubRelease, goos, goarch string) (bool, error) {
+	asset, err := releaseAsset(release, goos, goarch)
+	if err == nil {
+		_, err = releaseSignatureAsset(release, asset)
+	}
+	if errors.Is(err, errUpdateAssetPending) {
+		return true, nil
+	}
+	return false, err
 }
 
 func (s *PlannerService) InstallUpdate() error {
@@ -185,10 +198,10 @@ func githubClient(timeout time.Duration) *http.Client {
 func releaseAsset(release githubRelease, goos, goarch string) (githubAsset, error) {
 	name := ""
 	switch {
+	case goos == "linux" && goarch == "amd64":
+		name = "patient-dispatch-planner-linux-x64"
 	case goos == "windows" && goarch == "amd64":
 		name = "patient-dispatch-planner-windows-x64.exe"
-	case goos == "darwin" && goarch == "amd64":
-		name = "patient-dispatch-planner-macos-x64.zip"
 	case goos == "darwin" && goarch == "arm64":
 		name = "patient-dispatch-planner-macos-arm64.zip"
 	default:
@@ -203,7 +216,7 @@ func releaseAsset(release githubRelease, goos, goarch string) (githubAsset, erro
 		}
 		return asset, nil
 	}
-	return githubAsset{}, fmt.Errorf("GitHub release %s does not contain %s.", release.TagName, name)
+	return githubAsset{}, fmt.Errorf("%w: %s", errUpdateAssetPending, name)
 }
 
 func releaseSignatureAsset(release githubRelease, asset githubAsset) (githubAsset, error) {
@@ -220,7 +233,7 @@ func releaseSignatureAsset(release githubRelease, asset githubAsset) (githubAsse
 		}
 		return candidate, nil
 	}
-	return githubAsset{}, fmt.Errorf("GitHub release %s does not contain a signed update asset.", release.TagName)
+	return githubAsset{}, fmt.Errorf("%w: %s", errUpdateAssetPending, name)
 }
 
 func validateReleaseAsset(tag string, asset githubAsset) error {

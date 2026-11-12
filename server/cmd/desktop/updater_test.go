@@ -35,6 +35,8 @@ func TestReleaseAssetSelectsPlatformAndValidatesDigest(t *testing.T) {
 	release := githubRelease{
 		TagName: "v1.2.3",
 		Assets: []githubAsset{
+			{Name: "patient-dispatch-planner-macos-x64.zip", BrowserDownloadURL: githubReleaseURL + "v1.2.3/patient-dispatch-planner-macos-x64.zip", Digest: digest, Size: 10},
+			{Name: "patient-dispatch-planner-linux-x64", BrowserDownloadURL: githubReleaseURL + "v1.2.3/patient-dispatch-planner-linux-x64", Digest: digest, Size: 10},
 			{Name: "patient-dispatch-planner-windows-x64.exe", BrowserDownloadURL: githubReleaseURL + "v1.2.3/patient-dispatch-planner-windows-x64.exe", Digest: digest, Size: 10},
 			{Name: "patient-dispatch-planner-macos-arm64.zip", BrowserDownloadURL: githubReleaseURL + "v1.2.3/patient-dispatch-planner-macos-arm64.zip", Digest: digest, Size: 20},
 			{Name: "patient-dispatch-planner-macos-arm64.zip.sig", BrowserDownloadURL: githubReleaseURL + "v1.2.3/patient-dispatch-planner-macos-arm64.zip.sig", Digest: digest, Size: ed25519.SignatureSize},
@@ -49,10 +51,42 @@ func TestReleaseAssetSelectsPlatformAndValidatesDigest(t *testing.T) {
 		t.Fatalf("arm64 signature asset = %#v, %v", signature, err)
 	}
 	if _, err := releaseAsset(release, "darwin", "amd64"); err == nil {
-		t.Fatal("missing macOS x64 asset was accepted")
+		t.Fatal("unsupported macOS x64 asset was accepted")
 	}
-	if _, err := releaseAsset(release, "linux", "amd64"); err == nil {
+	if asset, err := releaseAsset(release, "linux", "amd64"); err != nil || asset.Name != "patient-dispatch-planner-linux-x64" {
+		t.Fatalf("linux x64 release asset = %#v, %v", asset, err)
+	}
+	if _, err := releaseAsset(release, "linux", "arm64"); err == nil {
 		t.Fatal("unsupported platform was accepted")
+	}
+}
+
+func TestReleaseReadinessWaitsForPlatformAndSignature(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	asset := githubAsset{Name: "patient-dispatch-planner-linux-x64", BrowserDownloadURL: githubReleaseURL + "v1.2.3/patient-dispatch-planner-linux-x64", Digest: digest, Size: 10}
+	signature := githubAsset{Name: asset.Name + ".sig", BrowserDownloadURL: asset.BrowserDownloadURL + ".sig", Digest: digest, Size: ed25519.SignatureSize}
+	for _, test := range []struct {
+		name    string
+		assets  []githubAsset
+		pending bool
+	}{
+		{name: "missing asset", pending: true},
+		{name: "missing signature", assets: []githubAsset{asset}, pending: true},
+		{name: "ready", assets: []githubAsset{asset, signature}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			pending, err := updatePending(githubRelease{TagName: "v1.2.3", Assets: test.assets}, "linux", "amd64")
+			if err != nil || pending != test.pending {
+				t.Fatalf("pending = %t, error = %v; want %t", pending, err, test.pending)
+			}
+		})
+	}
+	asset.Digest = "invalid"
+	if _, err := updatePending(githubRelease{TagName: "v1.2.3", Assets: []githubAsset{asset, signature}}, "linux", "amd64"); err == nil {
+		t.Fatal("invalid asset was treated as pending or ready")
+	}
+	if _, err := updatePending(githubRelease{TagName: "v1.2.3"}, "darwin", "amd64"); err == nil {
+		t.Fatal("unsupported platform was treated as pending")
 	}
 }
 

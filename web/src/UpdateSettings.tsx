@@ -15,10 +15,13 @@ export function UpdateSettings() {
     try {
       const result = await PlannerService.CheckForUpdate();
       setStatus(result);
-      setMessage(result.Available
+      setMessage(result.Pending
+        ? `La version ${result.LatestVersion} est en cours de préparation pour votre plateforme. Réessayez plus tard.`
+        : result.Available
         ? `La version ${result.LatestVersion} est disponible.`
         : `L’application est à jour (${result.CurrentVersion}).`);
     } catch {
+      setStatus(null);
       setMessage("La recherche de mise à jour a échoué. Vérifiez votre connexion. Vérifiez aussi qu’une version stable est publiée.");
     } finally {
       setBusy(false);

@@ -4,6 +4,7 @@ includes:
   common: ./build/Taskfile.yml
   windows: ./build/windows/Taskfile.yml
   darwin: ./build/darwin/Taskfile.yml
+  linux: ./build/linux/Taskfile.yml
 
 vars:
   GOOS: '{{.GOOS | default OS}}'

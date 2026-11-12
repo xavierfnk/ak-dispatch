@@ -9,13 +9,37 @@ permissions:
   contents: write
 
 jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          UPDATE_SIGNING_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBLIC_KEY }}
+          UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "Use a stable semantic version tag such as v1.2.3" >&2; exit 1; }
+          : "${UPDATE_SIGNING_PUBLIC_KEY:?Set the UPDATE_SIGNING_PUBLIC_KEY repository variable}"
+          : "${UPDATE_SIGNING_PRIVATE_KEY:?Set the UPDATE_SIGNING_PRIVATE_KEY secret}"
+          printf 'release signing preflight' > "$RUNNER_TEMP/signing-preflight"
+          node .github/scripts/sign-update.cjs "$RUNNER_TEMP/signing-preflight"
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+
   build:
     name: Build ${{ matrix.asset }}
+    needs: release
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          - runner: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+            asset: linux-x64
           - runner: windows-latest
             goos: windows
             goarch: amd64
@@ -24,10 +48,6 @@ jobs:
             goos: darwin
             goarch: arm64
             asset: macos-arm64
-          - runner: macos-latest
-            goos: darwin
-            goarch: amd64
-            asset: macos-x64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -43,6 +63,9 @@ jobs:
           go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
         shell: bash
+      - name: Install Linux build dependencies
+        if: matrix.goos == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
       - name: Build app
         run: |
           export APP_VERSION="${GITHUB_REF_NAME}"
@@ -70,46 +93,32 @@ jobs:
           if [ "${{ matrix.goos }}" = "darwin" ]; then
             ditto -c -k --sequesterRsrc --keepParent bin/patient-dispatch-planner.app \
               "$RUNNER_TEMP/release-assets/patient-dispatch-planner-${{ matrix.asset }}.zip"
-          else
+          elif [ "${{ matrix.goos }}" = "windows" ]; then
             cp bin/patient-dispatch-planner.exe \
               "$RUNNER_TEMP/release-assets/patient-dispatch-planner-${{ matrix.asset }}.exe"
+          else
+            cp bin/patient-dispatch-planner \
+              "$RUNNER_TEMP/release-assets/patient-dispatch-planner-${{ matrix.asset }}"
           fi
         shell: bash
         env:
           UPDATE_SIGNING_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBLIC_KEY }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ matrix.asset }}
-          path: ${{ runner.temp }}/release-assets/*
-          if-no-files-found: error
-
-  publish:
-    name: Publish GitHub Release
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: release-*
-          path: release-assets
-          merge-multiple: true
-      - name: Create release and upload assets
+      - name: Sign and upload build
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
           UPDATE_SIGNING_PUBLIC_KEY: ${{ vars.UPDATE_SIGNING_PUBLIC_KEY }}
         run: |
-          test -n "$UPDATE_SIGNING_PRIVATE_KEY" || { echo "Set the UPDATE_SIGNING_PRIVATE_KEY secret" >&2; exit 1; }
-          key="$RUNNER_TEMP/update-signing-key.pem"
-          printf '%s' "$UPDATE_SIGNING_PRIVATE_KEY" > "$key"
-          public_key=$(openssl pkey -in "$key" -pubout -outform DER | tail -c 32 | base64 | tr -d '\n')
-          test "$public_key" = "$UPDATE_SIGNING_PUBLIC_KEY" || { echo "Signing key does not match UPDATE_SIGNING_PUBLIC_KEY" >&2; exit 1; }
-          for asset in release-assets/*; do
-            digest="$asset.sha256"
-            sha256sum "$asset" | cut -d' ' -f1 | xxd -r -p > "$digest"
-            openssl pkeyutl -sign -rawin -inkey "$key" -in "$digest" -out "$asset.sig"
-            rm "$digest"
-          done
-          rm "$key"
-          gh release create "$GITHUB_REF_NAME" release-assets/* --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+          asset=("$RUNNER_TEMP"/release-assets/*)
+          test "${#asset[@]}" -eq 1 && test -f "${asset[0]}"
+          names=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')
+          if grep -Fx "$(basename "${asset[0]}")" <<< "$names"; then
+            grep -Fx "$(basename "${asset[0]}").sig" <<< "$names" || { echo "Published asset has no signature" >&2; exit 1; }
+            echo "Asset already exists; leaving the published build unchanged."
+            exit 0
+          fi
+          node .github/scripts/sign-update.cjs "${asset[0]}"
+          gh release upload "$GITHUB_REF_NAME" "${asset[0]}.sig" --clobber
+          gh release upload "$GITHUB_REF_NAME" "${asset[0]}"
