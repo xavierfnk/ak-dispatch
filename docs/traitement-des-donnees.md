@@ -2,11 +2,11 @@
 
 [English](../README.md) · [Présentation française](README.fr.md)
 
-*Synthèse des sources juridiques vérifiées le 17 octobre 2026 ; description de l’architecture de bureau mise à jour le 31 octobre 2026. Ce document décrit le fonctionnement actuel et résume des sources publiques. Il ne constitue ni un avis juridique, ni une analyse d’impact, ni une preuve de conformité.*
+*Synthèse des sources juridiques vérifiées le 17 octobre 2026 ; description de l’architecture web mise à jour le 14 novembre 2026. Ce document décrit le fonctionnement actuel et résume des sources publiques. Il ne constitue ni un avis juridique, ni une analyse d’impact, ni une preuve de conformité.*
 
 ## En bref
 
-L’application est conçue pour fonctionner localement. Elle ne dispose ni de serveur applicatif ni de base cloud. Les données saisies et les résultats conservés localement restent dans le profil IndexedDB du WebView. Une adresse précise peut identifier une personne. Dans un contexte de soins de maternité, elle peut aussi révéler ou permettre de déduire des informations de santé. Lorsque vous lancez un calcul, l’application transmet les lieux des patientes et des membres d’équipe à Google Routes. La requête ne contient ni nom ni identifiant, mais cela ne rend pas automatiquement ces lieux anonymes.
+L’application est conçue pour fonctionner localement. Elle ne dispose ni de serveur applicatif ni de base cloud. Les données saisies et les résultats conservés localement restent dans le profil IndexedDB du navigateur. Une adresse précise peut identifier une personne. Dans un contexte de soins de maternité, elle peut aussi révéler ou permettre de déduire des informations de santé. Lorsque vous lancez un calcul, le code de calcul exécuté dans le navigateur transmet les lieux des patientes et des membres d’équipe à Google Routes. La requête ne contient ni nom ni identifiant, mais cela ne rend pas automatiquement ces lieux anonymes.
 
 **N’utilisez que des données fictives tant que le DPO et les conseils juridiques n’ont pas validé le traitement, le déploiement et les conditions Google applicables.** L’architecture locale ne vaut pas autorisation juridique ou contractuelle.
 
@@ -14,26 +14,27 @@ L’application est conçue pour fonctionner localement. Elle ne dispose ni de s
 
 | Données | Traitement et stockage |
 | --- | --- |
-| Noms, adresses/lieux, parité et éligibilité PEC 100 % des patientes ; équipes, noms et lieux des membres ; capacités et cohortes | Saisis et conservés localement dans IndexedDB du profil WebView. Les identifiants de fiches sont créés dans l’interface. |
+| Noms, adresses/lieux, parité et éligibilité PEC 100 % des patientes ; équipes, noms et lieux des membres ; capacités et cohortes | Saisis et conservés localement dans IndexedDB du navigateur. Les identifiants de fiches sont créés dans l’interface. |
 | Historique local éventuellement présent | Conservé dans IndexedDB ; les calculs Google de la version actuelle ne l’alimentent pas. |
-| Clé API Google Maps | Conservée dans le trousseau de mots de passe du système d’exploitation, et non dans IndexedDB ou l’export. Elle est lue par le service Go local et n’est pas renvoyée à l’interface après saisie. |
+| Clé API Google Maps | Conservée dans le stockage local du navigateur (`localStorage`), et non dans IndexedDB ou l’export. Elle est lue par le code de calcul exécuté dans le navigateur. Toute personne ayant accès au profil du navigateur peut la lire ; restreignez-la à l’API Routes et à l’origine de l’application. |
 | Lieux des patientes et des membres actifs, options d’itinéraire et métadonnées techniques de requête | Transmis à Google Routes uniquement lorsque l’utilisateur lance un calcul. Google traite ces données selon les conditions et politiques applicables au projet Google concerné. |
-| Vérification et téléchargement d’une mise à jour | Sur action explicite de l’utilisateur, le service Go contacte l’API GitHub Releases et télécharge l’artefact de l’application correspondant au système et à l’architecture. GitHub reçoit les métadonnées ordinaires de la requête réseau (notamment l’adresse IP) ; aucune donnée de patiente, d’équipe ou de planification n’est incluse. |
-| Résultats de calcul Google | Reçus par le service Go local et affichés dans l’interface ; gardés en mémoire de l’application et non enregistrés dans IndexedDB ni dans l’export. Ils disparaissent à la fermeture de l’application. |
+| Résultats de calcul Google | Reçus par le code de calcul exécuté dans le navigateur et affichés dans l’interface ; gardés en mémoire de la page et non enregistrés dans IndexedDB ni dans l’export. Ils disparaissent au rechargement de la page. |
 
 L’export JSON peut contenir des noms, des adresses, la parité, l’éligibilité PEC 100 % et l’historique local. Protégez ce fichier comme un fichier potentiellement sensible. **Tout supprimer** efface les données des magasins locaux de l’application. Pour supprimer la clé API, utilisez l’action distincte dans Configuration. Ces actions ne suppriment pas les fichiers exportés ni les données éventuellement traitées par Google.
 
-Dans Configuration, vous pouvez importer un export JSON de l’application sur l’appareil. La fusion conserve les éléments locaux dont l’identifiant existe aussi dans le fichier. Le remplacement supprime les données locales avant d’importer celles du fichier. La clé Google Maps reste dans le trousseau et ne change pas. Vous ne pouvez pas importer les résultats Google temporaires.
+Dans Configuration, vous pouvez importer un export JSON de l’application. La fusion conserve les éléments locaux dont l’identifiant existe aussi dans le fichier. Le remplacement supprime les données locales avant d’importer celles du fichier. La clé Google Maps reste dans le stockage local du navigateur et ne change pas. Vous ne pouvez pas importer les résultats Google temporaires.
 
 Le stockage Web local n’est pas chiffré par l’application. Sécurisez les comptes de l’appareil, utilisez le chiffrement complet du disque lorsqu’il est disponible et protégez les sauvegardes et exports.
+
+Dans une application entièrement côté client, la clé API doit être accessible au code du navigateur. Le stockage local n’offre pas la protection d’un trousseau système. Utilisez une clé dédiée, restreinte à l’API Routes et à l’origine déployée, avec des quotas et des alertes de facturation. Ne réutilisez pas une clé disposant d’autres droits.
 
 ## Parcours d’un calcul
 
 1. L’interface valide localement les informations requises. Les noms et identifiants stables des fiches restent dans l’interface ; des jetons temporaires sont utilisés pour corréler la réponse au calcul.
-2. Wails transmet la requête au service Go sur l’appareil. L’optimiseur et la logique d’affectation s’exécutent localement.
-3. Pour calculer les trajets, le client Go envoie à Google Routes les lieux d’origine (membres actifs des équipes) et de destination (patientes), avec les options vélo et transports en commun. L’application ne fait pas de recherche d’adresse ou d’autocomplétion pendant la saisie.
+2. L’interface exécute le calcul en TypeScript dans le navigateur. L’optimiseur et la logique d’affectation s’exécutent localement.
+3. Pour calculer les trajets, le code de calcul envoie à Google Routes les lieux d’origine (membres actifs des équipes) et de destination (patientes), avec les options vélo et transports en commun. L’application ne fait pas de recherche d’adresse ou d’autocomplétion pendant la saisie.
 4. Les noms, jetons, identifiants de fiches, parité, capacités, critères d’éligibilité et résultats d’affectation ne sont pas inclus dans la requête de routage. Google reçoit néanmoins les lieux et des métadonnées de requête ; l’omission de ces autres champs ne prouve pas que les lieux soient anonymes.
-5. Go combine les temps de trajet disponibles avec les contraintes locales pour produire une proposition. Les calculs Google sont affichés en mémoire et ne sont pas enregistrés dans l’historique persistant.
+5. Le code de calcul combine les temps de trajet disponibles avec les contraintes locales pour produire une proposition. Les calculs Google sont affichés en mémoire et ne sont pas enregistrés dans l’historique persistant.
 
 Une adresse ou une coordonnée n’est pas nécessairement une donnée de santé par nature. Ici, l’application la relie localement à une patiente suivie pour des soins de maternité. Il est prudent de traiter le lieu comme une donnée personnelle et potentiellement comme une donnée de santé. L’envoi à un prestataire est un traitement, même si l’application ne conserve pas le résultat.
 
@@ -53,7 +54,7 @@ L’article L.1110-4 du Code de la santé publique encadre le secret professionn
 
 L’article L.1111-8 du Code de la santé publique prévoit une certification pour l’hébergement de données de santé entrant dans son champ. L’exception de l’article R.1111-8-8 vise certaines opérations ponctuelles. Elle comprend notamment la saisie, la mise en forme et la matérialisation ou dématérialisation. Elle ne mentionne pas expressément le calcul d’itinéraires. Les indications de l’ANS couvrent notamment les plateformes d’hébergement d’applications et l’exploitation de systèmes d’information de santé.
 
-Le service Go ne conserve pas de base de données. Cela ne constitue pas une exemption générale clairement établie. Une analyse factuelle doit examiner le traitement transitoire et l’infrastructure utilisée. Il faut vérifier le périmètre de certification des fournisseurs et des services concernés. Une certification Google Cloud distincte ne permet pas de présumer que Google Maps Platform est couvert.
+Le code de calcul ne conserve pas de base de données. Cela ne constitue pas une exemption générale clairement établie. Une analyse factuelle doit examiner le traitement transitoire et l’infrastructure utilisée. Il faut vérifier le périmètre de certification des fournisseurs et des services concernés. Une certification Google Cloud distincte ne permet pas de présumer que Google Maps Platform est couvert.
 
 ### Conditions Google Maps Platform
 

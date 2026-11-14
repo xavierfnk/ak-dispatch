@@ -7,11 +7,9 @@
     "dev": "vite --host 127.0.0.1",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "build": "tsc -b && vite build",
-    "build:desktop": "npm run build && node scripts/copy-desktop-assets.mjs",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
-    "@wailsio/runtime": "^3.0.0",
     "dexie": "^4.0.10",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
