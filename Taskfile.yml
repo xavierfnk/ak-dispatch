@@ -2,32 +2,25 @@ version: "3"
 
 tasks:
   dev:
-    desc: Run the Wails desktop app with frontend hot reload
-    dir: server/cmd/desktop
+    desc: Run the web app with frontend hot reload
+    dir: web
     cmds:
-      - wails3 dev -config ./build/config.yml
+      - npm run dev
 
   test:
-    desc: Run Go tests
-    dir: server
+    desc: Run frontend tests
+    dir: web
     cmds:
-      - go test ./...
-
-  vet:
-    desc: Run Go's static analyzer
-    dir: server
-    cmds:
-      - go vet ./...
+      - npm test
 
   build:
-    desc: Build the desktop application
-    dir: server/cmd/desktop
+    desc: Build the static web app
+    dir: web
     cmds:
-      - wails3 package
+      - npm run build
 
   check:
-    desc: Run Go tests, vet, and package the desktop app
+    desc: Run tests and the production build
     cmds:
       - task: test
-      - task: vet
       - task: build

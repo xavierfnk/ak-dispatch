@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, emptySettings } from "./db";
 import { GoogleApiKeySettings } from "./GoogleApiKeySettings";
-import { UpdateSettings } from "./UpdateSettings";
-import { calculateResponseSchema, type CalculateResponse } from "./response";
+import { type CalculateResponse } from "./response";
 import { syntheticDemo } from "./sample";
 import { splitMonth } from "./periods";
 import { movePreservesPEC } from "./pec";
 import { parseBackup } from "./backup";
 import { confirmAction } from "./confirm";
-import { PlannerService } from "../../server/cmd/desktop/frontend/bindings/patient-dispatch-planner/server/cmd/desktop";
+import { getGoogleApiKey } from "./apiKey";
+import { calculatePlan } from "./dispatch/calculate";
 import type { CalculateRequest, Capacity, Cohort, CohortTeamOverride, LocationFields, Member, Patient, RunRecord, Team } from "./types";
 
 const newId = () => crypto.randomUUID();
@@ -287,18 +287,10 @@ export default function App() {
   const [movePatientId, setMovePatientId] = useState("");
   const [moveTargetTeamId, setMoveTargetTeamId] = useState("");
   const [scorePatientId, setScorePatientId] = useState("");
-  const [googleKeyConfigured, setGoogleKeyConfigured] = useState(false);
+  const [googleKeyConfigured, setGoogleKeyConfigured] = useState(() => Boolean(getGoogleApiKey()));
   const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
   const [importing, setImporting] = useState(false);
   const importDialog = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    void PlannerService.GoogleAPIKeyConfigured()
-      .then((configured: boolean) => { if (mounted) setGoogleKeyConfigured(configured); })
-      .catch(() => { if (mounted) setError("Impossible d’accéder au trousseau de mots de passe de cet appareil."); });
-    return () => { mounted = false; };
-  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -600,7 +592,7 @@ export default function App() {
         settings: { weights: FIXED_WEIGHTS, referenceTravelTimeMinutes: 30 },
       };
 
-      const result = calculateResponseSchema.parse(await PlannerService.Calculate(body));
+      const result = await calculatePlan(body, getGoogleApiKey());
       const run: RunRecord = {
         id: newId(),
         cohortId: selectedCohort.id,
@@ -627,14 +619,11 @@ export default function App() {
       }
       setRuns((current) => [run, ...current]);
       setActiveRunId(run.id);
-      if (googleResult) setNotice("La proposition est temporaire. Elle ne sera ni enregistrée ni exportée. Elle disparaîtra à la fermeture de l’application. Vérifiez-la avant de l’utiliser.");
+      if (googleResult) setNotice("La proposition est temporaire. Elle ne sera ni enregistrée ni exportée. Elle disparaîtra au rechargement de la page. Vérifiez-la avant de l’utiliser.");
       else if (stored) setNotice("Proposition calculée. Vérifiez-la avant de l’utiliser.");
       else setCalculationError("La proposition a été calculée, mais n’a pas pu être enregistrée.");
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "";
-      setCalculationError(["Saisissez", "Choisissez", "Vérifiez", "Activez", "La proposition", "Ajoutez"].some((prefix) => message.startsWith(prefix))
-        ? message
-        : "Le calcul n’a pas abouti. Réessayez.");
+      setCalculationError(cause instanceof Error ? cause.message : "Le calcul n’a pas abouti. Réessayez.");
     } finally {
       setRunning(false);
     }
@@ -670,7 +659,7 @@ export default function App() {
   }
 
   async function exportData() {
-    if (!(await confirmAction("Le fichier contient les données saisies et les propositions enregistrées. Il ne contient pas les propositions Google temporaires. Celles-ci disparaissent à la fermeture de l’application. Conservez le fichier dans un endroit sûr."))) return;
+    if (!(await confirmAction("Le fichier contient les données saisies et les propositions enregistrées. Il ne contient pas les propositions Google temporaires. Celles-ci disparaissent au rechargement de la page. Conservez le fichier dans un endroit sûr."))) return;
     const [savedTeams, savedCohorts, savedSettings, savedRuns] = await Promise.all([
       db.teams.toArray(), db.cohorts.toArray(), db.settings.toArray(), db.runs.toArray(),
     ]);
@@ -701,7 +690,7 @@ export default function App() {
         setError("Fichier invalide ou incompatible. Aucune donnée n’a été modifiée.");
         return;
       }
-      if (mode === "replace" && !(await confirmAction("Remplacer toutes les équipes, cohortes et propositions par les données du fichier ? Les données actuelles seront définitivement supprimées. La clé Google Maps restera dans le trousseau."))) return;
+      if (mode === "replace" && !(await confirmAction("Remplacer toutes les équipes, cohortes et propositions par les données du fichier ? Les données actuelles seront définitivement supprimées. La clé Google Maps restera dans ce navigateur."))) return;
       await db.transaction("rw", db.teams, db.cohorts, db.settings, db.runs, async () => {
         if (mode === "replace") {
           await Promise.all([db.teams.clear(), db.cohorts.clear(), db.settings.clear(), db.runs.clear()]);
@@ -729,7 +718,7 @@ export default function App() {
   }
 
   async function clearAllData() {
-    if (!(await confirmAction("Supprimer définitivement toutes les équipes, cohortes et propositions ? La clé Google Maps restera dans le trousseau ; supprimez-la séparément dans Configuration."))) return;
+    if (!(await confirmAction("Supprimer définitivement toutes les équipes, cohortes et propositions ? La clé Google Maps restera dans ce navigateur ; supprimez-la séparément dans Configuration."))) return;
     await db.transaction("rw", db.teams, db.cohorts, db.settings, db.runs, async () => {
       await Promise.all([db.teams.clear(), db.cohorts.clear(), db.settings.clear(), db.runs.clear()]);
       await db.settings.put(emptySettings);
@@ -741,7 +730,7 @@ export default function App() {
     setActiveRunId("");
     setActiveTab("calendar");
     setSelectedMonth("");
-    setNotice("Les équipes, cohortes et propositions ont été supprimées. La clé Google Maps reste dans le trousseau et peut être supprimée dans Configuration.");
+    setNotice("Les équipes, cohortes et propositions ont été supprimées. La clé Google Maps reste dans ce navigateur et peut être supprimée dans Configuration.");
   }
 
   if (!ready) return <main className="loading">Ouverture…</main>;
@@ -917,7 +906,6 @@ export default function App() {
               </dialog>
             </section>
             <GoogleApiKeySettings configured={googleKeyConfigured} onChange={setGoogleKeyConfigured} />
-            <UpdateSettings />
             </section>
           </div>
         )}

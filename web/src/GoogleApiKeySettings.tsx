@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { PlannerService } from "../../server/cmd/desktop/frontend/bindings/patient-dispatch-planner/server/cmd/desktop";
+import { removeGoogleApiKey, saveGoogleApiKey } from "./apiKey";
 import { confirmAction } from "./confirm";
 
 interface GoogleApiKeySettingsProps {
@@ -14,30 +14,31 @@ export function GoogleApiKeySettings({ configured, onChange }: GoogleApiKeySetti
 
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (!apiKey.trim()) return;
     setBusy(true);
     setMessage("");
     try {
-      await PlannerService.SaveGoogleAPIKey(apiKey);
+      saveGoogleApiKey(apiKey);
       setApiKey("");
       onChange(true);
-      setMessage("La clé a été enregistrée dans le trousseau de cet appareil.");
+      setMessage("La clé a été enregistrée dans ce navigateur.");
     } catch {
-      setMessage("La clé n’a pas pu être enregistrée. Vérifiez le trousseau de cet appareil.");
+      setMessage("La clé n’a pas pu être enregistrée dans ce navigateur.");
     } finally {
       setBusy(false);
     }
   }
 
   async function remove() {
-    if (!(await confirmAction("Supprimer la clé Google Maps enregistrée sur cet appareil ?"))) return;
+    if (!(await confirmAction("Supprimer la clé Google Maps enregistrée dans ce navigateur ?"))) return;
     setBusy(true);
     setMessage("");
     try {
-      await PlannerService.RemoveGoogleAPIKey();
+      removeGoogleApiKey();
       onChange(false);
       setMessage("La clé a été supprimée.");
     } catch {
-      setMessage("La clé n’a pas pu être supprimée du trousseau de cet appareil.");
+      setMessage("La clé n’a pas pu être supprimée de ce navigateur.");
     } finally {
       setBusy(false);
     }
@@ -68,7 +69,7 @@ export function GoogleApiKeySettings({ configured, onChange }: GoogleApiKeySetti
         </div>
       </form>
       {message && <p className="section-hint" role="status">{message}</p>}
-      <p className="section-hint">La clé est conservée dans le trousseau de mots de passe de l’appareil. Elle n’est pas incluse dans les exports.</p>
+      <p className="section-hint">La clé est conservée dans le stockage local de ce navigateur. Elle n’est pas incluse dans les exports. Toute personne ayant accès à ce navigateur peut la lire : restreignez-la à l’API Routes et aux origines autorisées dans Google Cloud.</p>
     </section>
   );
 }
